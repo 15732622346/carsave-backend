@@ -26,14 +26,11 @@ export class MaintenanceRecordsController {
 
   @Get()
   findAll(
-    @Query('vehicleName') vehicleName?: string,
-    @Query('componentId') componentId?: string,
+    @Query('vehicleId', new ParseIntPipe({ optional: true })) vehicleId?: number,
+    @Query('componentId', new ParseIntPipe({ optional: true })) componentId?: number,
   ) {
-    const componentIdNum = componentId ? parseInt(componentId, 10) : undefined;
-    if (componentIdNum !== undefined && isNaN(componentIdNum)) {
-      throw new BadRequestException('Invalid componentId');
-    }
-    return this.recordsService.findAll(vehicleName, componentIdNum);
+    console.log(`[MaintenanceRecordsController] findAll - Received query params vehicleId: ${vehicleId}, componentId: ${componentId}`);
+    return this.recordsService.findAll(vehicleId, componentId);
   }
 
   @Get(':id')

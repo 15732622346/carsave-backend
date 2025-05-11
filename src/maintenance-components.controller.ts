@@ -38,7 +38,7 @@ export class MaintenanceComponentsController {
   }
 
   @Get()
-  findAll(@Query('vehicleName') vehicleName?: string) {
+  findAll(@Query('vehicle') vehicleName?: string) {
     // Pass vehicleName directly to the service
     return this.componentsService.findAll(vehicleName);
   }

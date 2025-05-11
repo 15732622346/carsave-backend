@@ -93,31 +93,34 @@ export class MaintenanceRecordsService {
     return savedRecord; // Return the newly created record
   }
 
-  async findAll(vehicleName?: string, componentId?: number): Promise<MaintenanceRecord[]> {
+  async findAll(vehicleIdParam?: number, componentId?: number): Promise<MaintenanceRecord[]> {
+    console.log(`[MaintenanceRecordsService] findAll - Received vehicleIdParam: ${vehicleIdParam}, componentId: ${componentId}`);
     const where: any = {};
-    let vehicleId: number | undefined = undefined;
 
-    // Find vehicleId if vehicleName is provided
-    if (vehicleName) {
-      const vehicle = await this.vehiclesRepository.findOneBy({ name: vehicleName });
-      if (!vehicle) {
-        // If name provided but vehicle not found, return empty list as per frontend logic
-        return [];
-      }
-      vehicleId = vehicle.id;
-      where.vehicle_id = vehicleId; // Add vehicle_id to where clause
+    // Use vehicleIdParam directly if provided
+    if (vehicleIdParam !== undefined) {
+      where.vehicle_id = vehicleIdParam; 
     }
 
     // Add componentId to where clause if provided
-    if (componentId) {
+    if (componentId !== undefined) {
       where.component_id = componentId;
     }
     
-    // Order by date descending to match frontend expectation
-    return this.recordsRepository.find({ 
+    console.log(`[MaintenanceRecordsService] findAll - Constructed where clause:`, JSON.stringify(where));
+
+    const records = await this.recordsRepository.find({ 
       where, 
       order: { maintenance_date: 'DESC' } 
     });
+
+    console.log(`[MaintenanceRecordsService] findAll - Records found: ${records.length}`);
+    // Optionally, log the full records if the list isn't too long, or just relevant parts
+    records.forEach(record => {
+      console.log(`  - Record ID: ${record.id}, Vehicle ID: ${record.vehicle_id}, Component ID: ${record.component_id}, Date: ${record.maintenance_date}`);
+    });
+
+    return records;
   }
 
   async findOne(id: number): Promise<MaintenanceRecord> {
