@@ -10,11 +10,19 @@ import {
 } from 'typeorm';
 import { Vehicle } from './vehicle.entity';
 import { MaintenanceRecord } from './maintenance-record.entity';
+import { User } from '../../users/user.entity';
 
 @Entity('maintenance_components') // Map to the 'maintenance_components' table
 export class MaintenanceComponent {
   @PrimaryGeneratedColumn()
   id: number;
+
+  @Column({ type: 'int', nullable: false })
+  user_id: number;
+
+  @ManyToOne(() => User, user => user.maintenance_components, { onDelete: 'CASCADE', onUpdate: 'RESTRICT' })
+  @JoinColumn({ name: 'user_id' })
+  user: User;
 
   @Column({ type: 'varchar', length: 255, nullable: false })
   name: string;

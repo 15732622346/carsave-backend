@@ -1,42 +1,49 @@
-import { Injectable, NotFoundException, ConflictException } from '@nestjs/common';
+import { Injectable, NotFoundException, ConflictException, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Vehicle } from './database/entities/vehicle.entity';
-import { CreateVehicleDto } from './dto/create-vehicle.dto'; // Path should be correct
-import { UpdateVehicleDto } from './dto/update-vehicle.dto'; // Path should be correct
+import { CreateVehicleDto } from './dto/create-vehicle.dto';
+import { UpdateVehicleDto } from './dto/update-vehicle.dto';
+import { User } from './users/user.entity';
 
 @Injectable()
 export class VehiclesService {
+  private readonly logger = new Logger(VehiclesService.name);
+
   constructor(
-    @InjectRepository(Vehicle) // Inject using the standard decorator
+    @InjectRepository(Vehicle)
     private vehiclesRepository: Repository<Vehicle>,
   ) {}
 
-  async create(createVehicleDto: CreateVehicleDto): Promise<Vehicle> {
-    console.log('[VehiclesService] Received DTO:', createVehicleDto);
-    // Check if a vehicle with the same name already exists
+  async create(createVehicleDto: CreateVehicleDto, user: User): Promise<Vehicle> {
+    this.logger.log(`[VehiclesService] User ${user.id} creating vehicle: ${createVehicleDto.name}`);
+    
     const existingVehicle = await this.vehiclesRepository.findOne({ 
-        where: { name: createVehicleDto.name } 
+        where: { 
+          name: createVehicleDto.name,
+          user_id: user.id
+        } 
     });
 
     if (existingVehicle) {
-      // If found, throw a 409 Conflict exception
-      throw new ConflictException(`Vehicle with name "${createVehicleDto.name}" already exists`);
+      throw new ConflictException(`Vehicle with name "${createVehicleDto.name}" already exists for this user`);
     }
 
-    // If not found, proceed to create and save the new vehicle
-    const newVehicle = this.vehiclesRepository.create(createVehicleDto);
+    const newVehicle = this.vehiclesRepository.create({
+      ...createVehicleDto,
+      user_id: user.id,
+    });
     return this.vehiclesRepository.save(newVehicle);
   }
 
-  async findAll(): Promise<Vehicle[]> {
-    return this.vehiclesRepository.find();
+  async findAll(userId: number): Promise<Vehicle[]> {
+    return this.vehiclesRepository.find({ where: { user_id: userId } });
   }
 
-  async findOne(id: number): Promise<Vehicle> {
-    const vehicle = await this.vehiclesRepository.findOne({ where: { id } });
+  async findOne(id: number, userId: number): Promise<Vehicle> {
+    const vehicle = await this.vehiclesRepository.findOne({ where: { id, user_id: userId } });
     if (!vehicle) {
-      throw new NotFoundException(`Vehicle with ID "${id}" not found`);
+      throw new NotFoundException(`Vehicle with ID "${id}" not found or does not belong to this user`);
     }
     return vehicle;
   }
@@ -44,22 +51,39 @@ export class VehiclesService {
   async update(
     id: number,
     updateVehicleDto: UpdateVehicleDto,
+    userId: number,
   ): Promise<Vehicle> {
-    // Load the existing vehicle, then update its properties
-    const vehicle = await this.vehiclesRepository.preload({
+    const existingVehicle = await this.vehiclesRepository.findOne({ where: { id, user_id: userId } });
+    if (!existingVehicle) {
+      throw new NotFoundException(`Vehicle with ID "${id}" not found or does not belong to this user`);
+    }
+
+    const vehicleToUpdate = await this.vehiclesRepository.preload({
       id: id,
       ...updateVehicleDto,
     });
-    if (!vehicle) {
-      throw new NotFoundException(`Vehicle with ID "${id}" not found`);
+
+    if (!vehicleToUpdate) {
+      throw new NotFoundException(`Vehicle with ID "${id}" not found during preload.`);
     }
-    return this.vehiclesRepository.save(vehicle);
+    
+    if (vehicleToUpdate.user_id !== userId) {
+        this.logger.warn(`Preloaded vehicle ${id} user_id ${vehicleToUpdate.user_id} does not match requesting user ${userId}. This should not happen.`);
+        throw new NotFoundException(`Vehicle with ID "${id}" access denied.`);
+    }
+
+    return this.vehiclesRepository.save(vehicleToUpdate);
   }
 
-  async remove(id: number): Promise<void> {
-    const result = await this.vehiclesRepository.delete(id);
+  async remove(id: number, userId: number): Promise<void> {
+    const vehicleToRemove = await this.vehiclesRepository.findOne({ where: { id, user_id: userId }});
+    if (!vehicleToRemove) {
+      throw new NotFoundException(`Vehicle with ID "${id}" not found or does not belong to this user`);
+    }
+    
+    const result = await this.vehiclesRepository.delete({ id: id, user_id: userId }); 
     if (result.affected === 0) {
-      throw new NotFoundException(`Vehicle with ID "${id}" not found`);
+      throw new NotFoundException(`Vehicle with ID "${id}" could not be removed for this user, or was already removed.`);
     }
   }
 }

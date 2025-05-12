@@ -10,6 +10,8 @@ import { MaintenanceRecordsService } from './maintenance-records.service';
 import { Inject } from '@nestjs/common';
 import { forwardRef } from '@nestjs/common';
 import { addDays, formatISO } from 'date-fns';
+import { Logger } from '@nestjs/common';
+import { User } from 'src/users/user.entity';
 
 // Export the enum so controller can use its type
 export enum MaintenanceStatus {
@@ -21,6 +23,8 @@ export enum MaintenanceStatus {
 
 @Injectable()
 export class MaintenanceComponentsService {
+  private readonly logger = new Logger(MaintenanceComponentsService.name);
+
   constructor(
     @InjectRepository(MaintenanceComponent)
     private componentsRepository: Repository<MaintenanceComponent>,
@@ -32,17 +36,21 @@ export class MaintenanceComponentsService {
 
   async create(
     createComponentDto: CreateMaintenanceComponentDto,
+    user: User,
   ): Promise<MaintenanceComponent> {
-    // 1. Find the associated vehicle to get current mileage
+    // 1. Find the associated vehicle to get current mileage, ensuring it belongs to the user
     const vehicle = await this.vehiclesRepository.findOne({ 
-        where: { id: createComponentDto.vehicle_id } 
+        where: { id: createComponentDto.vehicle_id, user_id: user.id }
     });
     if (!vehicle) {
-        throw new BadRequestException(`Vehicle with ID "${createComponentDto.vehicle_id}" not found.`);
+        throw new BadRequestException(`Vehicle with ID "${createComponentDto.vehicle_id}" not found or does not belong to this user.`);
     }
 
-    // 2. Create the basic component entity from DTO
-    const newComponent = this.componentsRepository.create(createComponentDto);
+    // 2. Create the basic component entity from DTO and assign user_id
+    const newComponent = this.componentsRepository.create({
+        ...createComponentDto,
+        user_id: user.id,
+    });
 
     // 3. Calculate and set initial target values
     const now = new Date();
@@ -71,36 +79,35 @@ export class MaintenanceComponentsService {
     return this.componentsRepository.save(newComponent);
   }
 
-  async findAll(vehicleName?: string): Promise<MaintenanceComponent[]> {
-    let vehicleId: number | undefined = undefined;
+  async findAll(userId: number, vehicleName?: string): Promise<MaintenanceComponent[]> {
+    this.logger.debug(`User ${userId} finding all components, vehicleName: ${vehicleName}`);
+    const queryOptions: any = { where: { user_id: userId } };
 
     if (vehicleName) {
-      // Find the vehicle by name to get its ID
-      const vehicle = await this.vehiclesRepository.findOneBy({ name: vehicleName });
+      const vehicle = await this.vehiclesRepository.findOne({ 
+          where: { name: vehicleName, user_id: userId }
+      });
       if (!vehicle) {
-        // If vehicle name is provided but not found, return empty list or throw error?
-        // Returning empty list to match original api_service behavior for now.
-        // throw new BadRequestException(`Vehicle with name "${vehicleName}" not found`); 
+        this.logger.log(`Vehicle with name "${vehicleName}" not found for user ${userId}. Returning empty array.`);
         return [];
       }
-      vehicleId = vehicle.id;
+      queryOptions.where.vehicle_id = vehicle.id;
     }
-
-    // Use vehicleId (if found) to filter components
-    const queryOptions = vehicleId ? { where: { vehicle_id: vehicleId } } : {};
+    
+    this.logger.debug(`Executing findAll query with options: ${JSON.stringify(queryOptions)}`);
     const components = await this.componentsRepository.find(queryOptions);
     
-    // --- ADD LOG --- 
     console.log('[MaintenanceComponentsService] Found components (before serialization):', JSON.stringify(components, null, 2));
-    // --- END LOG ---
-
     return components;
   }
 
-  async findOne(id: number): Promise<MaintenanceComponent> {
-    const component = await this.componentsRepository.findOne({ where: { id } });
+  async findOne(id: number, userId: number): Promise<MaintenanceComponent> { 
+    this.logger.log(`User ${userId} finding maintenance component with id: ${id}`);
+    const component = await this.componentsRepository.findOne({ 
+      where: { id, user_id: userId } 
+    });
     if (!component) {
-      throw new NotFoundException(`Component with ID "${id}" not found`);
+      throw new NotFoundException(`Component with ID "${id}" not found or does not belong to this user`);
     }
     return component;
   }
@@ -108,22 +115,47 @@ export class MaintenanceComponentsService {
   async update(
     id: number,
     updateComponentDto: UpdateMaintenanceComponentDto,
+    userId: number, 
   ): Promise<MaintenanceComponent> {
-    // TODO: Add validation if vehicle_id is being changed
-    const component = await this.componentsRepository.preload({
-      id: id,
+    this.logger.log(`User ${userId} updating maintenance component with id: ${id}`);
+    const existingComponent = await this.componentsRepository.findOne({ where: {id, user_id: userId }});
+    if (!existingComponent) {
+        throw new NotFoundException(`Component with ID "${id}" not found or does not belong to this user`);
+    }
+
+    if (updateComponentDto.vehicle_id && updateComponentDto.vehicle_id !== existingComponent.vehicle_id) {
+      const vehicle = await this.vehiclesRepository.findOne({
+          where: { id: updateComponentDto.vehicle_id, user_id: userId }
+      });
+      if (!vehicle) {
+          throw new BadRequestException(`New Vehicle ID "${updateComponentDto.vehicle_id}" not found or does not belong to this user.`);
+      }
+    }
+
+    const componentToUpdate = await this.componentsRepository.preload({
+      id: id, 
       ...updateComponentDto,
     });
-    if (!component) {
-      throw new NotFoundException(`Component with ID "${id}" not found`);
+
+    if (!componentToUpdate) {
+      throw new NotFoundException(`Component with ID "${id}" not found during preload.`);
     }
-    return this.componentsRepository.save(component);
+    if (componentToUpdate.user_id !== userId) {
+        this.logger.warn(`Preloaded component ${id} user_id ${componentToUpdate.user_id} does not match requesting user ${userId}.`);
+        throw new NotFoundException(`Component with ID "${id}" access denied.`);
+    }
+    return this.componentsRepository.save(componentToUpdate);
   }
 
-  async remove(id: number): Promise<void> {
-    const result = await this.componentsRepository.delete(id);
+  async remove(id: number, userId: number): Promise<void> { 
+    this.logger.log(`User ${userId} removing maintenance component with id: ${id}`);
+    const componentToRemove = await this.componentsRepository.findOne({ where: { id, user_id: userId }});
+    if (!componentToRemove) {
+      throw new NotFoundException(`Component with ID "${id}" not found or does not belong to this user`);
+    }
+    const result = await this.componentsRepository.delete({ id, user_id: userId }); 
     if (result.affected === 0) {
-      throw new NotFoundException(`Component with ID "${id}" not found`);
+      throw new NotFoundException(`Component with ID "${id}" could not be removed for this user.`);
     }
   }
 
@@ -242,71 +274,53 @@ export class MaintenanceComponentsService {
     componentId: number,
     currentMileage: number,
     recalculateNextTarget: boolean = true,
+    userId: number, // Added userId
   ): Promise<MaintenanceComponent> {
-    const component = await this.componentsRepository.findOne({ where: { id: componentId } });
+    this.logger.log(`User ${userId} marking component ${componentId} as maintained. Mileage: ${currentMileage}`);
+    const component = await this.componentsRepository.findOne({ 
+      where: { id: componentId, user_id: userId } 
+    });
     if (!component) {
-      throw new NotFoundException(`Component with ID "${componentId}" not found`);
+      throw new NotFoundException(`Component with ID "${componentId}" not found or does not belong to this user`);
     }
 
-    const vehicle = await this.vehiclesRepository.findOne({ where: { id: component.vehicle_id } });
+    const vehicle = await this.vehiclesRepository.findOne({ 
+        where: { id: component.vehicle_id, user_id: userId } 
+    });
     if (!vehicle) {
-       throw new NotFoundException(`Vehicle with ID "${component.vehicle_id}" not found for Component ID "${componentId}"`);
+        throw new BadRequestException(`Associated vehicle not found or does not belong to this user.`);
     }
     
-    // 1. Create a new Maintenance Record for this action
-    const newRecordDto = {
+    if (currentMileage > vehicle.mileage) {
+      vehicle.mileage = currentMileage;
+      await this.vehiclesRepository.save(vehicle); 
+    } else {
+      this.logger.warn(`Provided mileage ${currentMileage} for component ${componentId} is <= current vehicle mileage ${vehicle.mileage}. Using vehicle mileage for calculations.`);
+    }
+
+    const now = new Date();
+    const savedRecord = await this.recordsService.createForComponentMaintained(
+      {
         vehicle_id: component.vehicle_id,
-        component_id: componentId,
-        maintenance_date: new Date(), // Use current date for maintenance
+        component_id: component.id,
+        maintenance_date: now,
         mileage_at_maintenance: currentMileage, 
-        notes: 'Marked as maintained via API.' // Add a default note
-    };
-    
-    // Use MaintenanceRecordsService to create the record (this already handles component update if configured)
-    // However, the existing create method in RecordsService updates based on DTO values,
-    // we need a more direct way to update the component based on the *new* record and the flag.
-    // Let's call a potentially new/refactored method in RecordsService or do it here.
-    
-    // For now, let's implement the update logic directly here, similar to RecordsService.create
-    // but using the provided currentMileage and the flag.
-    // WARNING: This duplicates logic. Refactoring into a shared private method or 
-    // enhancing RecordsService.create would be better in a real application.
-    
-    const maintenanceDate = new Date();
-    component.last_maintenance_date = maintenanceDate;
+        notes: `Component "${component.name}" maintained.`,
+      },
+      userId, 
+    );
 
-    if (recalculateNextTarget) { // Only recalculate if the flag is true
-      if (component.maintenance_type === 'date') {
-        component.target_maintenance_date = addDays(
-          maintenanceDate,
-          component.maintenance_value,
-        );
-        component.target_maintenance_mileage = null;
-      } else if (component.maintenance_type === 'mileage') {
-        component.target_maintenance_mileage =
-          currentMileage + component.maintenance_value;
+    component.last_maintenance_date = now;
+    if (recalculateNextTarget) {
+      if (component.maintenance_type === 'mileage') {
+        component.target_maintenance_mileage = currentMileage + component.maintenance_value;
         component.target_maintenance_date = null;
+      } else if (component.maintenance_type === 'date') {
+        component.target_maintenance_date = addDays(now, component.maintenance_value);
+        component.target_maintenance_mileage = null;
       }
-    } 
-    // If recalculateNextTarget is false, keep the existing target dates/mileages.
-
-    const updatedComponent = await this.componentsRepository.save(component);
-    
-    // We should still create the maintenance record for history
-    try {
-        // We pass all required fields for record creation explicitly
-        await this.recordsService.create({
-            vehicle_id: component.vehicle_id,
-            component_id: componentId,
-            maintenance_date: maintenanceDate,
-            mileage_at_maintenance: currentMileage,
-            notes: 'Marked as maintained via API.' // Consistent note
-        });
-    } catch (recordError) {
-        console.error(`Error creating maintenance record after marking component ${componentId} as maintained:`, recordError);
-        // Consider how to handle this: maybe log and continue, or rethrow?
     }
-
-    return updatedComponent; // Return the updated component state
+    this.logger.debug(`[MaintenanceComponentsService markAsMaintained] Component ${componentId} after update: ${JSON.stringify(component,null, 2)}`)
+    return this.componentsRepository.save(component);
   }
 }

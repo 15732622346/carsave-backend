@@ -9,6 +9,7 @@ import {
 } from 'typeorm';
 import { Vehicle } from './vehicle.entity';
 import { MaintenanceComponent } from './maintenance-component.entity';
+import { User } from '../../users/user.entity';
 
 @Entity('maintenance_records') // Map to the 'maintenance_records' table
 export class MaintenanceRecord {
@@ -29,6 +30,9 @@ export class MaintenanceRecord {
 
   @Column({ type: 'text', nullable: true })
   notes: string;
+
+  @Column({ type: 'int', nullable: false })
+  user_id: number;
 
   @CreateDateColumn()
   created_at: Date;
@@ -54,4 +58,8 @@ export class MaintenanceRecord {
   )
   @JoinColumn({ name: 'component_id' })
   maintenanceComponent: MaintenanceComponent; // Changed name to avoid conflict with import
+
+  @ManyToOne(() => User, user => user.maintenance_records, { onDelete: 'CASCADE', onUpdate: 'RESTRICT' })
+  @JoinColumn({ name: 'user_id' })
+  user: User;
 } 

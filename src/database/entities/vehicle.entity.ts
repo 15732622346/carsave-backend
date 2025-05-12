@@ -5,14 +5,24 @@ import {
   CreateDateColumn,
   UpdateDateColumn,
   OneToMany,
+  ManyToOne,
+  JoinColumn,
 } from 'typeorm';
 import { MaintenanceComponent } from './maintenance-component.entity';
 import { MaintenanceRecord } from './maintenance-record.entity';
+import { User } from '../../users/user.entity';
 
 @Entity('vehicles') // Map to the 'vehicles' table
 export class Vehicle {
   @PrimaryGeneratedColumn() // Maps to 'id INT AUTO_INCREMENT PRIMARY KEY'
   id: number;
+
+  @Column({ type: 'int', nullable: false }) // Maps to 'user_id INT NOT NULL'
+  user_id: number;
+
+  @ManyToOne(() => User, user => user.vehicles, { onDelete: 'CASCADE', onUpdate: 'RESTRICT' })
+  @JoinColumn({ name: 'user_id' }) // Maps to 'user_id INT NOT NULL'
+  user: User;
 
   @Column({ type: 'varchar', length: 255, nullable: false }) // Maps to 'name VARCHAR(255) NOT NULL'
   name: string;

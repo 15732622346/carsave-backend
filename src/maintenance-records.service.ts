@@ -2,6 +2,7 @@ import {
   Injectable,
   NotFoundException,
   BadRequestException,
+  Logger,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
@@ -14,6 +15,8 @@ import { addDays } from 'date-fns'; // Import date-fns for adding days
 
 @Injectable()
 export class MaintenanceRecordsService {
+  private readonly logger = new Logger(MaintenanceRecordsService.name);
+
   constructor(
     @InjectRepository(MaintenanceRecord)
     private recordsRepository: Repository<MaintenanceRecord>,
@@ -25,108 +28,120 @@ export class MaintenanceRecordsService {
 
   async create(
     createRecordDto: CreateMaintenanceRecordDto,
+    userId: number,
+    skipComponentUpdate: boolean = false,
   ): Promise<MaintenanceRecord> {
-    // Validate foreign keys before creating
-    const vehicleExists = await this.vehiclesRepository.findOneBy({
-      id: createRecordDto.vehicle_id,
+    this.logger.log(`User ${userId} creating record for vehicle ${createRecordDto.vehicle_id}, component ${createRecordDto.component_id}`);
+
+    const vehicle = await this.vehiclesRepository.findOne({
+      where: { id: createRecordDto.vehicle_id, user_id: userId },
     });
-    if (!vehicleExists) {
+    if (!vehicle) {
       throw new BadRequestException(
-        `Vehicle with ID "${createRecordDto.vehicle_id}" not found`,
+        `Vehicle with ID "${createRecordDto.vehicle_id}" not found or does not belong to user ${userId}`,
       );
     }
 
-    const component = await this.componentsRepository.findOneBy({
+    const component = await this.componentsRepository.findOne({
+      where: {
       id: createRecordDto.component_id,
-      vehicle_id: createRecordDto.vehicle_id, // Ensure component belongs to the vehicle
+        vehicle_id: createRecordDto.vehicle_id, 
+        user_id: userId, 
+      },
     });
     if (!component) {
       throw new BadRequestException(
-        `Component with ID "${createRecordDto.component_id}" not found or does not belong to vehicle ID "${createRecordDto.vehicle_id}"`,
+        `Component with ID "${createRecordDto.component_id}" not found for vehicle ID "${createRecordDto.vehicle_id}" or does not belong to user ${userId}`,
       );
     }
 
-    // --- Save the new record --- 
-    const newRecord = this.recordsRepository.create(createRecordDto);
+    const newRecordData: Partial<MaintenanceRecord> = {
+      ...createRecordDto,
+      user_id: userId,
+    };
+    const newRecord = this.recordsRepository.create(newRecordData);
     const savedRecord = await this.recordsRepository.save(newRecord);
 
-    // --- Update the related component --- 
+    if (!skipComponentUpdate) {
+      this.logger.log(`Updating component ${component.id} after record creation ${savedRecord.id}`);
     try {
       component.last_maintenance_date = savedRecord.maintenance_date;
-
       if (component.maintenance_type === 'date') {
-        // Calculate next target date
         component.target_maintenance_date = addDays(
           savedRecord.maintenance_date,
-          component.maintenance_value, // maintenance_value is in days for date type
+            component.maintenance_value,
         );
-        component.target_maintenance_mileage = null; // Clear mileage target if type is date
+          component.target_maintenance_mileage = null;
       } else if (component.maintenance_type === 'mileage') {
-        // Calculate next target mileage
         if (savedRecord.mileage_at_maintenance == null) {
-          // Handle missing mileage - maybe throw error or use vehicle's current?
-          // For now, we log a warning and don't update target mileage.
-          // Consider adding validation in DTO to require mileage for mileage-based components.
-          console.warn(
+            this.logger.warn(
             `Mileage not provided for mileage-based component record (Component ID: ${component.id}, Record ID: ${savedRecord.id}). Target mileage not updated.`,
           );
-          component.target_maintenance_mileage = null; // Or keep old value?
+            component.target_maintenance_mileage = vehicle.mileage + component.maintenance_value; 
         } else {
           component.target_maintenance_mileage = 
             savedRecord.mileage_at_maintenance + component.maintenance_value;
         }
-        component.target_maintenance_date = null; // Clear date target if type is mileage
+          component.target_maintenance_date = null;
       }
-
       await this.componentsRepository.save(component);
     } catch (error) {
-        // Log the error but don't necessarily fail the record creation?
-        // Or wrap both saves in a transaction later.
-        console.error(
-          `Error updating component (ID: ${component.id}) after creating record (ID: ${savedRecord.id}):`, 
-          error
+        this.logger.error(
+          `Error updating component (ID: ${component.id}) after creating record (ID: ${savedRecord.id}): ${error.message}`,
+          error.stack,
         );
-        // Depending on requirements, you might want to throw an error here
-        // or implement a compensation mechanism (e.g., delete the saved record).
+      }
     }
-
-    return savedRecord; // Return the newly created record
+    return savedRecord;
   }
 
-  async findAll(vehicleIdParam?: number, componentId?: number): Promise<MaintenanceRecord[]> {
-    console.log(`[MaintenanceRecordsService] findAll - Received vehicleIdParam: ${vehicleIdParam}, componentId: ${componentId}`);
-    const where: any = {};
+  async createForComponentMaintained(
+    createRecordDto: CreateMaintenanceRecordDto,
+    userId: number,
+  ): Promise<MaintenanceRecord> {
+    this.logger.log(`Creating record for component maintained by user ${userId}, DTO: ${JSON.stringify(createRecordDto)}`);
+    return this.create(createRecordDto, userId, true); 
+  }
 
-    // Use vehicleIdParam directly if provided
+  async findAll(userId: number, vehicleIdParam?: number, componentId?: number): Promise<MaintenanceRecord[]> {
+    this.logger.log(`User ${userId} findAll records. VehicleId: ${vehicleIdParam}, ComponentId: ${componentId}`);
+    const where: any = { user_id: userId };
+
     if (vehicleIdParam !== undefined) {
-      where.vehicle_id = vehicleIdParam; 
+      const vehicle = await this.vehiclesRepository.findOne({ where: { id: vehicleIdParam, user_id: userId }});
+      if (!vehicle) {
+        this.logger.warn(`User ${userId} - Vehicle ${vehicleIdParam} not found or not owned.`);
+        return [];
+      }
+      where.vehicle_id = vehicleIdParam;
     }
 
-    // Add componentId to where clause if provided
     if (componentId !== undefined) {
+      const componentQuery: any = { id: componentId, user_id: userId };
+      if (where.vehicle_id) { 
+        componentQuery.vehicle_id = where.vehicle_id;
+      }
+      const component = await this.componentsRepository.findOne({ where: componentQuery });
+      if (!component) {
+        this.logger.warn(`User ${userId} - Component ${componentId} (for vehicle ${where.vehicle_id || 'any'}) not found or not owned.`);
+        return []; 
+      }
       where.component_id = componentId;
     }
     
-    console.log(`[MaintenanceRecordsService] findAll - Constructed where clause:`, JSON.stringify(where));
-
-    const records = await this.recordsRepository.find({ 
+    return this.recordsRepository.find({ 
       where, 
-      order: { maintenance_date: 'DESC' } 
+      order: { maintenance_date: 'DESC', created_at: 'DESC' },
     });
-
-    console.log(`[MaintenanceRecordsService] findAll - Records found: ${records.length}`);
-    // Optionally, log the full records if the list isn't too long, or just relevant parts
-    records.forEach(record => {
-      console.log(`  - Record ID: ${record.id}, Vehicle ID: ${record.vehicle_id}, Component ID: ${record.component_id}, Date: ${record.maintenance_date}`);
-    });
-
-    return records;
   }
 
-  async findOne(id: number): Promise<MaintenanceRecord> {
-    const record = await this.recordsRepository.findOne({ where: { id } });
+  async findOne(id: number, userId: number): Promise<MaintenanceRecord> {
+    this.logger.log(`User ${userId} findOne record ${id}`);
+    const record = await this.recordsRepository.findOne({ where: { id, user_id: userId } });
     if (!record) {
-      throw new NotFoundException(`Record with ID "${id}" not found`);
+      throw new NotFoundException(
+        `Record with ID "${id}" not found or does not belong to user ${userId}`,
+      );
     }
     return record;
   }
@@ -134,42 +149,59 @@ export class MaintenanceRecordsService {
   async update(
     id: number,
     updateRecordDto: UpdateMaintenanceRecordDto,
+    userId: number,
   ): Promise<MaintenanceRecord> {
-    // Optionally validate foreign keys if they are part of the update DTO
-    if (
-      updateRecordDto.vehicle_id &&
-      !(await this.vehiclesRepository.findOneBy({ id: updateRecordDto.vehicle_id }))
-    ) {
-      throw new BadRequestException(
-        `Vehicle with ID "${updateRecordDto.vehicle_id}" not found`,
-      );
-    }
-    if (
-      updateRecordDto.component_id &&
-      !(await this.componentsRepository.findOneBy({ id: updateRecordDto.component_id }))
-    ) {
-      throw new BadRequestException(
-        `Component with ID "${updateRecordDto.component_id}" not found`,
-      );
-    }
-    // Add check to ensure component belongs to vehicle if both are updated
+    this.logger.log(`User ${userId} update record ${id} with DTO: ${JSON.stringify(updateRecordDto)}`);
+    const existingRecord = await this.findOne(id, userId); 
 
-    const record = await this.recordsRepository.preload({
+    if (updateRecordDto.vehicle_id && updateRecordDto.vehicle_id !== existingRecord.vehicle_id) {
+      const vehicle = await this.vehiclesRepository.findOne({
+        where: { id: updateRecordDto.vehicle_id, user_id: userId },
+      });
+      if (!vehicle)
+      throw new BadRequestException(
+          `Update failed: Target Vehicle ID "${updateRecordDto.vehicle_id}" not found or does not belong to user ${userId}.`,
+      );
+    }
+    
+    const targetVehicleId = updateRecordDto.vehicle_id || existingRecord.vehicle_id;
+
+    if (updateRecordDto.component_id && updateRecordDto.component_id !== existingRecord.component_id) {
+      const component = await this.componentsRepository.findOne({
+        where: { id: updateRecordDto.component_id, user_id: userId, vehicle_id: targetVehicleId },
+      });
+      if (!component)
+      throw new BadRequestException(
+          `Update failed: Target Component ID "${updateRecordDto.component_id}" not found for vehicle "${targetVehicleId}" or does not belong to user ${userId}.`,
+      );
+    }
+
+    const recordToUpdate = await this.recordsRepository.preload({
       id: id,
       ...updateRecordDto,
+      user_id: userId, 
     });
-    if (!record) {
-      throw new NotFoundException(`Record with ID "${id}" not found`);
+    
+    if (!recordToUpdate) {
+        throw new NotFoundException(`Record with ID "${id}" could not be preloaded.`);
     }
-    return this.recordsRepository.save(record);
+
+    if (recordToUpdate.user_id !== userId) {
+        this.logger.error(`Integrity issue: Record ${id} user_id mismatch during update for user ${userId}.`);
+        throw new BadRequestException('Record ownership mismatch.');
+    }
+
+    return this.recordsRepository.save(recordToUpdate);
   }
 
-  async remove(id: number): Promise<void> {
-    const result = await this.recordsRepository.delete(id);
+  async remove(id: number, userId: number): Promise<void> {
+    this.logger.log(`User ${userId} remove record ${id}`);
+    const record = await this.findOne(id, userId); 
+    const result = await this.recordsRepository.delete(record.id); 
     if (result.affected === 0) {
-      throw new NotFoundException(`Record with ID "${id}" not found`);
+      throw new NotFoundException(
+        `Record with ID "${id}" could not be removed for user ${userId}, or was already removed.`,
+      );
     }
   }
-
-  // TODO: Add logic related to updating MaintenanceComponent.last_maintenance_date when a record is added/updated
 }
