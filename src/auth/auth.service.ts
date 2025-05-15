@@ -5,9 +5,9 @@ import { WxLoginDto } from './dto/wx-login.dto';
 import { WxSession } from './interfaces/wx-session.interface';
 import { AuthResponse } from './interfaces/auth-response.interface';
 import { firstValueFrom } from 'rxjs';
-// import { JwtService } from '@nestjs/jwt'; // 后续用于生成JWT
-// import { UserService } from '../user/user.service'; // 假设有 UserService
-// import { User } from '../database/entities/user.entity'; // 假设用户实体
+import { JwtService } from '@nestjs/jwt'; // 导入 JwtService
+import { UserService } from '../user/user.service'; // 假设有 UserService
+import { User } from '../database/entities/user.entity'; // 假设用户实体
 
 @Injectable()
 export class AuthService {
@@ -18,10 +18,10 @@ export class AuthService {
   constructor(
     private readonly httpService: HttpService,
     private readonly configService: ConfigService,
-    // private readonly userService: UserService, // 注入 UserService
-    // private readonly jwtService: JwtService,  // 注入 JwtService
+    private readonly userService: UserService, // 注入 UserService (模拟)
+    private readonly jwtService: JwtService,  // 注入 JwtService
   ) {
-    // 从配置中获取 AppID 和 AppSecret，如果没有提供则使用占位符
+    this.logger.log('AuthService initialized with JwtService.');
     this.WECHAT_APP_ID = this.configService.get<string>('WECHAT_APP_ID') || 'YOUR_WECHAT_APP_ID';
     this.WECHAT_APP_SECRET = this.configService.get<string>('WECHAT_APP_SECRET') || 'YOUR_WECHAT_APP_SECRET';
 
@@ -36,28 +36,15 @@ export class AuthService {
 
     let wxSession: WxSession;
     try {
-      const url = `https://api.weixin.qq.com/sns/jscode2session?appid=${this.WECHAT_APP_ID}&secret=${this.WECHAT_APP_SECRET}&js_code=${code}&grant_type=authorization_code`;
-      this.logger.debug(`Requesting WeChat session: ${url}`);
+      const url = `https://api.weixin.qq.com/sns/jscode2session?appid=${this.configService.get<string>('WECHAT_APP_ID')}&secret=${this.configService.get<string>('WECHAT_APP_SECRET')}&js_code=${code}&grant_type=authorization_code`;
+      this.logger.debug(`Requesting WeChat session from URL: ${url}`);
       
-      // 实际项目中，AppID 和 AppSecret 不应硬编码或使用简单占位符，而是通过 ConfigService 安全获取
-      if (this.WECHAT_APP_ID === 'YOUR_WECHAT_APP_ID' || this.WECHAT_APP_SECRET === 'YOUR_WECHAT_APP_SECRET') {
-        this.logger.warn("Using mocked WeChat API response due to missing AppID/Secret.");
-        // 模拟微信API响应
-        wxSession = {
-          openid: `mock_openid_${Date.now()}`,
-          session_key: `mock_session_key_${Date.now()}`,
-        };
-        if (code === 'errorcode') { // 模拟错误码
-            wxSession.errcode = 40029;
-            wxSession.errmsg = 'invalid code';
-        }
-      } else {
-        const response = await firstValueFrom(
-          this.httpService.get<WxSession>(url),
-        );
-        wxSession = response.data;
-        this.logger.debug(`WeChat session response: ${JSON.stringify(wxSession)}`);
-      }
+      this.logger.debug(`Attempting to call actual WeChat API.`);
+      const response = await firstValueFrom(
+        this.httpService.get<WxSession>(url),
+      );
+      wxSession = response.data;
+      this.logger.debug(`Actual WeChat session response: ${JSON.stringify(wxSession)}`);
 
       if (wxSession.errcode) {
         this.logger.error(`WeChat API Error: ${wxSession.errmsg} (code: ${wxSession.errcode})`);
@@ -68,40 +55,49 @@ export class AuthService {
       }
 
       if (!wxSession.openid) {
-        this.logger.error('OpenID not found in WeChat session response.');
+        this.logger.error('OpenID not found in WeChat session response. Cannot proceed.');
         throw new HttpException('Failed to get OpenID from WeChat.', HttpStatus.INTERNAL_SERVER_ERROR);
       }
+      this.logger.log(`Successfully obtained openid: ${wxSession.openid}`);
 
-      // --- 用户查找/创建逻辑 (简化/占位) ---
-      // let user: User = await this.userService.findByOpenid(wxSession.openid);
-      // if (!user) {
-      //   this.logger.log(`User with openid ${wxSession.openid} not found. Returning requiresProfile.`);
-      //   // 对于新用户，可能需要前端引导获取用户信息后再注册
-      //   // 或者在这里创建一个基础用户
-      //   // user = await this.userService.createWithOpenid(wxSession.openid);
-      //   // this.logger.log(`New user created with openid: ${user.openid}`);
-      //   return {
-      //     statusCode: HttpStatus.OK,
-      //     message: 'User not found, profile information required.',
-      //     data: { requiresProfile: true, openid: wxSession.openid } // 传递 openid 供后续注册使用
-      //   };
-      // }
-      // this.logger.log(`User found: ${user.id}`);
+      this.logger.log(`Checking for user with openid: ${wxSession.openid}`);
+      let user: User | null = null;
+      const userExistsMock = Math.random() > 0.5; 
+      if (userExistsMock) {
+        user = { 
+          id: Math.floor(Math.random() * 1000) + 1,
+          openid: wxSession.openid,
+          nickName: 'Mocked Existing User',
+          avatarUrl: '',
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        };
+        this.logger.log(`User found with openid ${wxSession.openid}. User ID: ${user.id}`);
+      } else {
+        this.logger.log(`User with openid ${wxSession.openid} not found. Simulating creation.`);
+        user = { 
+            id: Math.floor(Math.random() * 1000) + 1001, 
+            openid: wxSession.openid,
+            nickName: `NewUser_${wxSession.openid.slice(-4)}`,
+            avatarUrl: '',
+            createdAt: new Date(),
+            updatedAt: new Date(),
+        };
+        this.logger.log(`Simulated new user creation for openid ${wxSession.openid}. New User ID: ${user.id}`);
+      }
 
-      // --- 生成 Token (简化/占位) ---
-      // const payload = { sub: user.id, openid: user.openid };
-      // const token = await this.jwtService.signAsync(payload);
+      this.logger.log(`Preparing to generate JWT for user ID: ${user.id}, openid: ${user.openid}`);
+      const payload = { sub: user.id, openid: user.openid };
+      const token = await this.jwtService.signAsync(payload);
+      this.logger.log(`Generated JWT successfully.`); // 不直接打印token，太长
       
-      // 模拟返回，实际应包含真实用户信息和token
-      const mockUser = { id: 'mockUserId', openid: wxSession.openid, nickName: 'Mock User' };
-      const mockToken = 'mock_jwt_token_' + Date.now();
-
+      this.logger.log(`Login process successful for openid: ${wxSession.openid}. User ID: ${user.id}`);
       return {
         statusCode: HttpStatus.OK,
-        message: 'Login successful (mocked)',
+        message: 'Login successful (real JWT generated, simulated user check)',
         data: {
-          token: mockToken,
-          user: mockUser as any, // 类型断言，因为User实体未完全定义
+          token: token, // 返回真实的 JWT
+          user: user as User,
         },
       };
 
