@@ -4,11 +4,12 @@ import { MaintenanceComponentsController } from './maintenance-components.contro
 import { MaintenanceComponentsService } from './maintenance-components.service';
 import { MaintenanceComponent } from '../database/entities/maintenance-component.entity';
 import { Vehicle } from '../database/entities/vehicle.entity'; // Import Vehicle if service uses VehicleRepository
+import { MaintenanceRecord } from '../database/entities/maintenance-record.entity'; // Import MaintenanceRecord
 // import { AuthModule } from '../auth/auth.module'; // If guards are not global
 
 @Module({
   imports: [
-    TypeOrmModule.forFeature([MaintenanceComponent, Vehicle]), // Include Vehicle if its repo is used in the service
+    TypeOrmModule.forFeature([MaintenanceComponent, Vehicle, MaintenanceRecord]), // Add MaintenanceRecord here
     // AuthModule, // PassportModule is usually configured in AuthModule and exported or global
   ],
   controllers: [MaintenanceComponentsController],
