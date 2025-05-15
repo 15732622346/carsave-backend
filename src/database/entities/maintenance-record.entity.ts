@@ -18,7 +18,7 @@ export class MaintenanceRecord {
   @Column({ type: 'int', nullable: false }) // Corresponds to vehicle_id INT NOT NULL
   vehicle_id: number;
 
-  @Column({ type: 'int', nullable: false }) // Corresponds to component_id INT NOT NULL
+  @Column({ type: 'int', nullable: true }) // Corresponds to component_id INT, NOW NULLABLE
   component_id: number;
 
   @Column({ type: 'date', nullable: false }) // Maps to maintenance_date DATE NOT NULL
@@ -48,8 +48,8 @@ export class MaintenanceRecord {
     () => MaintenanceComponent,
     (component) => component.maintenanceRecords,
     {
-      onDelete: 'CASCADE', // Match the FOREIGN KEY constraint
-      nullable: false,
+      onDelete: 'SET NULL', // Changed from CASCADE to SET NULL
+      nullable: true,    // Changed from false to true
     },
   )
   @JoinColumn({ name: 'component_id' })

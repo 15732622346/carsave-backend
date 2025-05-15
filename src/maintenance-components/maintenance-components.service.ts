@@ -36,13 +36,58 @@ export class MaintenanceComponentsService {
     
     this.logger.log(`[CREATE] Vehicle found: ${JSON.stringify(vehicle)}`);
 
+    // Prepare data for entity creation, including calculating targets if not provided
+    const dataForEntity: Partial<MaintenanceComponent> = {
+      ...createComponentDto,
+      vehicle: vehicle,
+      // Handle target_maintenance_date type conversion initially
+      target_maintenance_date: createComponentDto.target_maintenance_date 
+                                  ? new Date(createComponentDto.target_maintenance_date) 
+                                  : null,
+    };
+    // Remove the original string date from DTO if it was spread, to avoid type conflict
+    // @ts-ignore
+    delete dataForEntity.target_maintenance_date_string_from_dto; // Assuming a placeholder if needed, but direct assignment above is better
+
+    if (createComponentDto.maintenance_type === MaintenanceType.MILEAGE) {
+      if (createComponentDto.target_maintenance_mileage === null || createComponentDto.target_maintenance_mileage === undefined) {
+        if (vehicle.mileage !== null && vehicle.mileage !== undefined && createComponentDto.maintenance_value) {
+          dataForEntity.target_maintenance_mileage = vehicle.mileage + createComponentDto.maintenance_value;
+          this.logger.log(`[CREATE] Calculated target_maintenance_mileage: ${dataForEntity.target_maintenance_mileage}`);
+        } else {
+          this.logger.warn('[CREATE] Cannot calculate target_maintenance_mileage due to missing vehicle.mileage or dto.maintenance_value. It will be null.');
+          dataForEntity.target_maintenance_mileage = null;
+        }
+      } else {
+        dataForEntity.target_maintenance_mileage = createComponentDto.target_maintenance_mileage;
+        this.logger.log(`[CREATE] Using user-provided target_maintenance_mileage: ${dataForEntity.target_maintenance_mileage}`);
+      }
+    } else if (createComponentDto.maintenance_type === MaintenanceType.DATE) {
+      // target_maintenance_date is already handled above during dataForEntity initialization if provided by user.
+      // Now, handle the case where it was NOT provided by the user.
+      if (dataForEntity.target_maintenance_date === null || dataForEntity.target_maintenance_date === undefined) { // Check the potentially converted value
+        if (createComponentDto.maintenance_value) {
+          const currentDate = new Date();
+          const targetDate = new Date(currentDate);
+          targetDate.setDate(currentDate.getDate() + createComponentDto.maintenance_value);
+          dataForEntity.target_maintenance_date = targetDate;
+          this.logger.log(`[CREATE] Calculated target_maintenance_date: ${dataForEntity.target_maintenance_date.toISOString().split('T')[0]}`);
+        } else {
+          this.logger.warn('[CREATE] Cannot calculate target_maintenance_date due to missing dto.maintenance_value. It will be null.');
+          dataForEntity.target_maintenance_date = null; 
+        }
+      } else {
+         // User provided target_maintenance_date, already converted to Date and assigned to dataForEntity.target_maintenance_date
+        this.logger.log(`[CREATE] Using user-provided target_maintenance_date (already converted): ${dataForEntity.target_maintenance_date}`);
+      }
+    }
+
     // Actual database operation
     try {
-      const componentEntity = this.componentsRepository.create({
-        ...createComponentDto,
-        vehicle,
-      });
-      this.logger.log(`[CREATE] Component entity created: ${JSON.stringify(componentEntity)}`);
+      // TypeORM's create method expects a plain object that matches the entity structure.
+      // Ensure all provided fields in dataForEntity are valid for MaintenanceComponent.
+      const componentEntity = this.componentsRepository.create(dataForEntity as MaintenanceComponent); // Cast to assure type if needed
+      this.logger.log(`[CREATE] Component entity created with potentially calculated targets: ${JSON.stringify(componentEntity)}`);
       
       const savedComponent = await this.componentsRepository.save(componentEntity);
       this.logger.log(`[CREATE SUCCESS] Component saved, ID: ${savedComponent.id}, Data: ${JSON.stringify(savedComponent)}`);
@@ -190,19 +235,6 @@ export class MaintenanceComponentsService {
     }
     this.logger.log(`[REMOVE] Component found: ${JSON.stringify(component)}`);
     
-    // Check for related MaintenanceRecords
-    const relatedRecords = await this.maintenanceRecordsRepository.find({
-      where: { maintenanceComponent: { id: id } },
-    });
-
-    if (relatedRecords.length > 0) {
-      this.logger.warn(`[REMOVE] Component ID: ${id} has ${relatedRecords.length} related maintenance records. Deletion aborted.`);
-      throw new BadRequestException(
-        `保养组件 (ID: ${id}) 存在 ${relatedRecords.length} 条关联的保养记录，无法直接删除。请先删除或处理这些保养记录。`,
-      );
-    }
-    this.logger.log(`[REMOVE] No related maintenance records found for component ID: ${id}. Proceeding with deletion.`);
-
     try {
       const result = await this.componentsRepository.delete(id);
       if (result.affected === 0) {
