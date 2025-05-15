@@ -119,27 +119,29 @@ export class MaintenanceComponentsService {
     const findOptions: import('typeorm').FindManyOptions<MaintenanceComponent> = {
       relations: ['vehicle'], // Always load the vehicle relation
       order: { name: 'ASC' }, // Optional: order by name or another field
+      // `where` will be added conditionally
     };
 
     if (vehicleId) {
-      this.logger.log(`[FIND_ALL] Filtering by vehicleId: ${vehicleId}`);
-      findOptions.where = { vehicle: { id: vehicleId } };
+      this.logger.log(`[FIND_ALL] Filtering by vehicle_id: ${vehicleId}`);
+      findOptions.where = { vehicle_id: vehicleId }; // Filter by the direct foreign key column
     } else if (vehicleName) {
-      this.logger.log(`[FIND_ALL] Filtering by vehicleName: ${vehicleName}`);
-      // This requires joining with vehicles and filtering by vehicle.name
-      // For simplicity with basic FindOptions, if you need this, consider a QueryBuilder
-      // Or ensure vehicleName is unique and you fetch vehicleId first.
-      // As a basic approach, if vehicleName is passed, we might need to fetch all and filter in memory or use QueryBuilder.
-      // For now, this example will show how to do it if vehicleId is prioritized.
-      // If only vehicleName is available, a more complex query is needed.
-      // Let's assume for now we primarily filter by vehicleId if provided.
-      // If you have a direct relation or a way to query by vehicle name efficiently:
-      // findOptions.where = { vehicle: { name: vehicleName } }; // This might work if 'name' is a direct column and indexed.
-      // However, filtering by related entity's property typically needs a join, best done with QueryBuilder.
-      // For this example, we'll keep it simple and prioritize vehicleId.
-      // If only vehicleName is given, it won't filter by it directly here without QueryBuilder.
-      // A better approach for vehicleName would be: fetch vehicle by name, then use its ID.
+      this.logger.log(`[FIND_ALL] Filtering by vehicleName: ${vehicleName} - Note: This path is complex and typically requires QueryBuilder.`);
+      // Robust filtering by a related entity's name (vehicle.name) from the MaintenanceComponent repository
+      // usually requires a QueryBuilder to perform the necessary join and condition.
+      // Example (conceptual, would replace the .find() call and needs careful implementation):
+      // return this.componentsRepository.createQueryBuilder('component')
+      //   .innerJoinAndSelect('component.vehicle', 'vehicle', 'vehicle.name = :vehicleName', { vehicleName })
+      //   .orderBy('component.name', 'ASC')
+      //   .getMany();
+      // Since vehicleId is the primary filter used by the frontend for specific vehicles,
+      // and 'All Vehicles' implies no vehicleId, this vehicleName branch is secondary.
+      // If this branch is reached (vehicleId is null but vehicleName is present),
+      // and no specific where clause is constructed here for vehicleName, it will effectively fetch all components.
+      // For now, we do not add a `where` clause here, relying on `vehicleId` as the main filter mechanism.
     }
+    // If neither vehicleId nor an effective vehicleName filter is applied,
+    // findOptions.where will remain undefined, and TypeORM will fetch all entities, which is correct for "All Vehicles".
 
     try {
       const components = await this.componentsRepository.find(findOptions);
