@@ -54,53 +54,52 @@ export class VehiclesService {
 
   async findOne(id: number): Promise<Vehicle> {
     this.logger.log(`Finding vehicle with id: ${id}`);
-    const currentDate = new Date();
-    const mockDtoData: CreateVehicleDto = {
-      name: 'Mock Vehicle',
-      mileage: 10000,
-      manufacturing_date: new Date('2020-01-01').toISOString().split('T')[0],
-      plate_number: 'TEST1234',
-      image: 'mock_image_url.png',
-    };
-    
-    const vehicleEntity = this.vehiclesRepository.create(mockDtoData);
-
-    return Promise.resolve({
-        ...vehicleEntity, 
-        id, 
-        manufacturing_date: new Date(mockDtoData.manufacturing_date!), 
-        created_at: currentDate,
-        updated_at: currentDate,
-        maintenanceComponents: [],
-        maintenanceRecords: [],
-    } as Vehicle);
+    const vehicle = await this.vehiclesRepository.findOne({ where: { id } });
+    if (!vehicle) {
+      this.logger.warn(`Vehicle with ID "${id}" not found`);
+      throw new NotFoundException(`Vehicle with ID "${id}" not found`);
+    }
+    this.logger.log(`Found vehicle: ${JSON.stringify(vehicle)}`);
+    return vehicle;
   }
 
   async update(id: number, updateVehicleDto: UpdateVehicleDto): Promise<Vehicle> {
-    this.logger.log(`Updating vehicle with id: ${id} with data: ${JSON.stringify(updateVehicleDto)}`);
-    const existingMock = await this.findOne(id);
-    
-    const updatedEntityData = {
-        ...existingMock, 
-        ...updateVehicleDto, 
-        manufacturing_date: updateVehicleDto.manufacturing_date 
-                              ? new Date(updateVehicleDto.manufacturing_date) 
-                              : existingMock.manufacturing_date, 
-    };
+    this.logger.log(`Attempting to update vehicle with ID "${id}". Data: ${JSON.stringify(updateVehicleDto)}`);
+    const vehicleToUpdate = await this.vehiclesRepository.preload({
+      id: id,
+      ...updateVehicleDto,
+      manufacturing_date: updateVehicleDto.manufacturing_date
+                          ? new Date(updateVehicleDto.manufacturing_date)
+                          : undefined,
+    });
 
-    const updatedVehicle = {
-      ...this.vehiclesRepository.create(updatedEntityData as Partial<Vehicle>), 
-      id, 
-      updated_at: new Date(), 
-      created_at: existingMock.created_at, 
-      maintenanceComponents: existingMock.maintenanceComponents,
-      maintenanceRecords: existingMock.maintenanceRecords,
-    } as Vehicle;
-    return Promise.resolve(updatedVehicle);
+    if (!vehicleToUpdate) {
+      this.logger.warn(`Vehicle with ID "${id}" not found for update.`);
+      throw new NotFoundException(`Vehicle with ID "${id}" not found`);
+    }
+
+    this.logger.log(`Vehicle data to save (after preload and merge): ${JSON.stringify(vehicleToUpdate)}`);
+    try {
+      const updatedVehicle = await this.vehiclesRepository.save(vehicleToUpdate);
+      this.logger.log(`Vehicle with ID "${id}" updated successfully: ${JSON.stringify(updatedVehicle)}`);
+      return updatedVehicle;
+    } catch (error) {
+      this.logger.error(`Error updating vehicle with ID "${id}": ${error.message}`, error.stack);
+      if (error.code === 'ER_DUP_ENTRY' || error.constructor.name === 'QueryFailedError' && error.message.includes('UNIQUE constraint failed')) {
+          throw new ConflictException(`Failed to update vehicle. A vehicle with similar properties (e.g., name) might already exist.`);
+      }
+      throw error;
+    }
   }
 
-  async remove(id: number): Promise<{ deleted: boolean; message?: string }> {
-    this.logger.log(`Removing vehicle with id: ${id}`);
-    return Promise.resolve({ deleted: true });
+  async remove(id: number): Promise<void> {
+    this.logger.log(`Attempting to remove vehicle with ID "${id}"`);
+    const result = await this.vehiclesRepository.delete(id);
+
+    if (result.affected === 0) {
+      this.logger.warn(`Vehicle with ID "${id}" not found for deletion, no records affected.`);
+      throw new NotFoundException(`Vehicle with ID "${id}" not found`);
+    }
+    this.logger.log(`Vehicle with ID "${id}" removed successfully. Records affected: ${result.affected}`);
   }
 } 
