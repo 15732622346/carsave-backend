@@ -54,50 +54,41 @@ export class AuthService {
         );
       }
 
-      if (!wxSession.openid) {
-        this.logger.error('OpenID not found in WeChat session response. Cannot proceed.');
-        throw new HttpException('Failed to get OpenID from WeChat.', HttpStatus.INTERNAL_SERVER_ERROR);
+      if (!wxSession.openid || !wxSession.session_key) { // 同时检查 session_key
+        this.logger.error('OpenID or SessionKey not found in WeChat session response. Cannot proceed.');
+        throw new HttpException('Failed to get OpenID or SessionKey from WeChat.', HttpStatus.INTERNAL_SERVER_ERROR);
       }
-      this.logger.log(`Successfully obtained openid: ${wxSession.openid}`);
+      this.logger.log(`Successfully obtained openid: ${wxSession.openid} and session_key.`); // 不打印 session_key
 
       this.logger.log(`Checking for user with openid: ${wxSession.openid}`);
-      let user: User | null = null;
-      const userExistsMock = Math.random() > 0.5; 
-      if (userExistsMock) {
-        user = { 
-          id: Math.floor(Math.random() * 1000) + 1,
-          openid: wxSession.openid,
-          nickName: 'Mocked Existing User',
-          avatarUrl: '',
-          createdAt: new Date(),
-          updatedAt: new Date(),
-        };
-        this.logger.log(`User found with openid ${wxSession.openid}. User ID: ${user.id}`);
+      let user: User | null = await this.userService.findByOpenid(wxSession.openid);
+
+      if (!user) {
+        this.logger.log(`User with openid ${wxSession.openid} not found. Creating new user.`);
+        // 注意：wxLoginDto 中可能包含 userInfo，例如 nickName, avatarUrl
+        // 如果小程序端设计为登录时即尝试获取用户信息，则可以在此传递
+        // const { userInfo } = wxLoginDto; // 假设 wxLoginDto 扩展了可以包含 userInfo
+        // user = await this.userService.createWithOpenid(wxSession.openid, wxSession.session_key, userInfo);
+        user = await this.userService.createWithOpenid(wxSession.openid, wxSession.session_key);
+        this.logger.log(`New user created with ID: ${user.id} for openid ${wxSession.openid}.`);
       } else {
-        this.logger.log(`User with openid ${wxSession.openid} not found. Simulating creation.`);
-        user = { 
-            id: Math.floor(Math.random() * 1000) + 1001, 
-            openid: wxSession.openid,
-            nickName: `NewUser_${wxSession.openid.slice(-4)}`,
-            avatarUrl: '',
-            createdAt: new Date(),
-            updatedAt: new Date(),
-        };
-        this.logger.log(`Simulated new user creation for openid ${wxSession.openid}. New User ID: ${user.id}`);
+        this.logger.log(`User found with openid ${wxSession.openid}. User ID: ${user.id}`);
+        // 可选：如果需要，可以在此处更新用户的 session_key 或其他信息
+        // await this.userService.updateUserSessionKey(user.id, wxSession.session_key);
       }
 
       this.logger.log(`Preparing to generate JWT for user ID: ${user.id}, openid: ${user.openid}`);
-      const payload = { sub: user.id, openid: user.openid };
+      const payload = { sub: user.id, openid: user.openid }; // 确保 payload 中包含 sub (userId)
       const token = await this.jwtService.signAsync(payload);
-      this.logger.log(`Generated JWT successfully.`); // 不直接打印token，太长
+      this.logger.log(`Generated JWT successfully.`);
       
       this.logger.log(`Login process successful for openid: ${wxSession.openid}. User ID: ${user.id}`);
       return {
         statusCode: HttpStatus.OK,
-        message: 'Login successful (real JWT generated, simulated user check)',
+        message: 'Login successful',
         data: {
-          token: token, // 返回真实的 JWT
-          user: user as User,
+          token: token,
+          user: user, // 返回完整的用户对象 (TypeORM 实体)
         },
       };
 

@@ -1,39 +1,62 @@
-import { Module } from '@nestjs/common';
+import { Module, Logger } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
-import { VehiclesModule } from './vehicles.module';
-import { MaintenanceComponentsModule } from './maintenance-components.module';
-import { MaintenanceRecordsModule } from './maintenance-records.module';
+import { VehiclesModule } from './vehicles/vehicles.module';
+import { MaintenanceComponentsModule } from './maintenance-components/maintenance-components.module';
+import { MaintenanceRecordsModule } from './maintenance-records/maintenance-records.module';
 import { AuthModule } from './auth/auth.module';
+import { UserModule } from './user/user.module';
+
+// Import Entities for TypeOrmModule
+import { User } from './database/entities/user.entity';
+import { Vehicle } from './database/entities/vehicle.entity';
+import { MaintenanceComponent } from './database/entities/maintenance-component.entity';
+import { MaintenanceRecord } from './database/entities/maintenance-record.entity';
 
 @Module({
   imports: [
     ConfigModule.forRoot({
       isGlobal: true,
-      envFilePath: `.env.${process.env.NODE_ENV || 'development'}`,
+      envFilePath: process.env.NODE_ENV === 'development' ? '.env.development' : '.env',
     }),
     TypeOrmModule.forRootAsync({
       imports: [ConfigModule],
+      useFactory: (configService: ConfigService) => {
+        const logger = new Logger('TypeOrmConfig');
+        const dbHost = configService.get<string>('DB_HOST');
+        const dbPort = configService.get<number>('DB_PORT');
+        const dbUsername = configService.get<string>('DB_USERNAME');
+        const dbPassword = configService.get<string>('DB_PASSWORD');
+        const dbDatabase = configService.get<string>('DB_DATABASE');
+
+        logger.log(`DB_HOST: ${dbHost}`);
+        logger.log(`DB_PORT: ${dbPort}`);
+        logger.log(`DB_USERNAME: ${dbUsername}`);
+        logger.log(`DB_DATABASE: ${dbDatabase}`);
+        logger.log(`NODE_ENV: ${process.env.NODE_ENV}`);
+        logger.log(`Attempting to load env file from: ${process.env.NODE_ENV === 'development' ? '.env.development' : '.env'}`);
+
+        return {
+          type: 'mysql',
+          host: dbHost,
+          port: dbPort,
+          username: dbUsername,
+          password: dbPassword,
+          database: dbDatabase,
+          entities: [User, Vehicle, MaintenanceComponent, MaintenanceRecord],
+          synchronize: configService.get<boolean>('DB_SYNCHRONIZE', true),
+          logging: true,
+        };
+      },
       inject: [ConfigService],
-      useFactory: async (configService: ConfigService) => ({
-        type: 'mysql',
-        host: configService.get<string>('DB_HOST'),
-        port: configService.get<number>('DB_PORT'),
-        username: configService.get<string>('DB_USERNAME'),
-        password: configService.get<string>('DB_PASSWORD'),
-        database: configService.get<string>('DB_DATABASE'),
-        autoLoadEntities: true,
-        synchronize: false,
-        logging: configService.get<string>('NODE_ENV') !== 'production',
-        connectTimeout: 10000,
-      }),
     }),
+    AuthModule,
+    UserModule,
     VehiclesModule,
     MaintenanceComponentsModule,
     MaintenanceRecordsModule,
-    AuthModule,
   ],
   controllers: [AppController],
   providers: [AppService],
