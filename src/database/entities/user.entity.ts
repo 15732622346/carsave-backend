@@ -1,4 +1,5 @@
-import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, UpdateDateColumn } from 'typeorm';
+import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, UpdateDateColumn, OneToMany } from 'typeorm';
+import { Vehicle } from './vehicle.entity';
 
 @Entity('users') // 'users' 是数据库中的表名
 export class User {
@@ -39,4 +40,8 @@ export class User {
 
   @UpdateDateColumn({ name: 'updated_at' }) // 匹配数据库列名
   updatedAt: Date;
+
+  // Define relationship with Vehicle
+  @OneToMany(() => Vehicle, (vehicle) => vehicle.user)
+  vehicles: Vehicle[];
 } 

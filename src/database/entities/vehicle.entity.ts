@@ -5,9 +5,12 @@ import {
   CreateDateColumn,
   UpdateDateColumn,
   OneToMany,
+  ManyToOne,
+  JoinColumn,
 } from 'typeorm';
 import { MaintenanceComponent } from './maintenance-component.entity';
 import { MaintenanceRecord } from './maintenance-record.entity';
+import { User } from './user.entity';
 
 @Entity('vehicles') // Map to the 'vehicles' table
 export class Vehicle {
@@ -34,6 +37,11 @@ export class Vehicle {
 
   @UpdateDateColumn() // Maps to 'updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP'
   updated_at: Date;
+
+  // Foreign key for User
+  @ManyToOne(() => User, (user) => user.vehicles, { nullable: false, onDelete: 'CASCADE' })
+  @JoinColumn({ name: 'user_id' })
+  user: User;
 
   // Define relationships (will add corresponding @ManyToOne in other entities)
   @OneToMany(() => MaintenanceComponent, (component) => component.vehicle)

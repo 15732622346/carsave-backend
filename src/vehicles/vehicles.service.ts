@@ -4,7 +4,7 @@ import { Repository } from 'typeorm';
 import { Vehicle } from '../database/entities/vehicle.entity';
 import { CreateVehicleDto } from './dto/create-vehicle.dto';
 import { UpdateVehicleDto } from './dto/update-vehicle.dto';
-// import { User } from '../database/entities/user.entity'; // 假设车辆与用户关联
+import { User } from '../database/entities/user.entity'; // Import User entity
 
 @Injectable()
 export class VehiclesService {
@@ -15,35 +15,41 @@ export class VehiclesService {
     private vehiclesRepository: Repository<Vehicle>,
   ) {}
 
-  async create(createVehicleDto: CreateVehicleDto): Promise<Vehicle> {
-    this.logger.log(`Attempting to create vehicle with DTO: ${JSON.stringify(createVehicleDto)}`);
+  async create(createVehicleDto: CreateVehicleDto, userId: number): Promise<Vehicle> {
+    this.logger.log(`Attempting to create vehicle for user ${userId} with DTO: ${JSON.stringify(createVehicleDto)}`);
     
-    // Create a new entity instance from the DTO.
-    // TypeORM's `create` method handles mapping DTO fields to entity properties.
-    // If DTO has fields like `manufacturing_date` (string) and entity has `manufacturingDate` (Date),
-    // TypeORM might handle this conversion if the types are compatible or if decorators specify transformers.
-    // For now, we assume direct compatibility or that TypeORM handles basic string-to-Date if applicable.
     const newVehicle = this.vehiclesRepository.create(createVehicleDto);
     
-    this.logger.log(`Entity created from DTO (before save): ${JSON.stringify(newVehicle)}`);
+    // Associate the vehicle with the user
+    // We create a partial User object with just the id to establish the relationship.
+    // TypeORM will correctly link this to the User with the given id.
+    newVehicle.user = { id: userId } as User;
+
+    this.logger.log(`Entity created from DTO (before save, with user association): ${JSON.stringify(newVehicle)}`);
 
     try {
-      // Save the new entity to the database.
-      // The `save` method will perform an INSERT operation.
       const savedVehicle = await this.vehiclesRepository.save(newVehicle);
       this.logger.log(`Vehicle saved successfully: ${JSON.stringify(savedVehicle)}`);
       return savedVehicle;
     } catch (error) {
       this.logger.error(`Error saving vehicle to database: ${error.message}`, error.stack);
-      // Rethrow the error or handle it as a specific HTTP exception
-      // For example, if it's a unique constraint violation, you might throw a ConflictException.
       throw error; 
     }
   }
 
-  async findAll(): Promise<Vehicle[]> {
-    this.logger.log('Finding all vehicles');
-    return Promise.resolve([]);
+  async findAll(userId: number): Promise<Vehicle[]> {
+    this.logger.log(`Finding all vehicles for user ${userId}`);
+    try {
+      const vehicles = await this.vehiclesRepository.find({
+        where: { user: { id: userId } },
+        relations: ['user'],
+      });
+      this.logger.log(`Found ${vehicles.length} vehicles for user ${userId}`);
+      return vehicles;
+    } catch (error) {
+      this.logger.error(`Error finding vehicles for user ${userId}: ${error.message}`, error.stack);
+      throw error;
+    }
   }
 
   async findOne(id: number): Promise<Vehicle> {
