@@ -16,21 +16,29 @@ export class VehiclesService {
   ) {}
 
   async create(createVehicleDto: CreateVehicleDto): Promise<Vehicle> {
-    this.logger.log(`Creating vehicle: ${JSON.stringify(createVehicleDto)}`);
-    // CreateVehicleDto 不应该包含 id，所以直接使用它来创建实体
-    const newVehicleEntity = this.vehiclesRepository.create(createVehicleDto);
+    this.logger.log(`Attempting to create vehicle with DTO: ${JSON.stringify(createVehicleDto)}`);
     
-    const currentDate = new Date();
-    // 模拟数据库保存行为: 后端生成 ID，并添加时间戳和空的关联数组
-    const savedVehicle = {
-      ...newVehicleEntity, // newVehicleEntity 基于 DTO，不含 id, created_at, updated_at
-      id: Date.now(),      // 模拟后端生成新的 ID
-      created_at: currentDate,
-      updated_at: currentDate,
-      maintenanceComponents: [],
-      maintenanceRecords: [],
-    } as Vehicle;
-    return Promise.resolve(savedVehicle);
+    // Create a new entity instance from the DTO.
+    // TypeORM's `create` method handles mapping DTO fields to entity properties.
+    // If DTO has fields like `manufacturing_date` (string) and entity has `manufacturingDate` (Date),
+    // TypeORM might handle this conversion if the types are compatible or if decorators specify transformers.
+    // For now, we assume direct compatibility or that TypeORM handles basic string-to-Date if applicable.
+    const newVehicle = this.vehiclesRepository.create(createVehicleDto);
+    
+    this.logger.log(`Entity created from DTO (before save): ${JSON.stringify(newVehicle)}`);
+
+    try {
+      // Save the new entity to the database.
+      // The `save` method will perform an INSERT operation.
+      const savedVehicle = await this.vehiclesRepository.save(newVehicle);
+      this.logger.log(`Vehicle saved successfully: ${JSON.stringify(savedVehicle)}`);
+      return savedVehicle;
+    } catch (error) {
+      this.logger.error(`Error saving vehicle to database: ${error.message}`, error.stack);
+      // Rethrow the error or handle it as a specific HTTP exception
+      // For example, if it's a unique constraint violation, you might throw a ConflictException.
+      throw error; 
+    }
   }
 
   async findAll(): Promise<Vehicle[]> {

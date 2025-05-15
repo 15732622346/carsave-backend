@@ -13,7 +13,7 @@ export class CreateVehicleDto {
 
   @IsString()
   @IsOptional()
-  @Matches(/^[A-Z0-9]{5,10}$/, { message: 'Plate number is invalid' }) // 示例正则，根据实际车牌规则调整
+  // @Matches(/^[A-Z0-9]{5,10}$/, { message: 'Plate number is invalid' }) // 示例正则，根据实际车牌规则调整
   plate_number?: string;
 
   @IsString()
