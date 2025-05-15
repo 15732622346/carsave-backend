@@ -69,42 +69,61 @@ export class MaintenanceComponentsService {
   }
 
   async findAll(vehicleId?: number, vehicleName?: string): Promise<MaintenanceComponent[]> {
-    this.logger.log(`Finding all maintenance components. VehicleId: ${vehicleId}, VehicleName: ${vehicleName}`);
-    // Actual implementation would filter based on these parameters
-    // For mock, we just log and return empty or sample data
+    this.logger.log(`[FIND_ALL START] vehicleId: ${vehicleId}, vehicleName: ${vehicleName}`);
+    
+    const findOptions: import('typeorm').FindManyOptions<MaintenanceComponent> = {
+      relations: ['vehicle'], // Always load the vehicle relation
+      order: { name: 'ASC' }, // Optional: order by name or another field
+    };
+
     if (vehicleId) {
-      this.logger.log(`Filtering by vehicleId: ${vehicleId}`);
+      this.logger.log(`[FIND_ALL] Filtering by vehicleId: ${vehicleId}`);
+      findOptions.where = { vehicle: { id: vehicleId } };
+    } else if (vehicleName) {
+      this.logger.log(`[FIND_ALL] Filtering by vehicleName: ${vehicleName}`);
+      // This requires joining with vehicles and filtering by vehicle.name
+      // For simplicity with basic FindOptions, if you need this, consider a QueryBuilder
+      // Or ensure vehicleName is unique and you fetch vehicleId first.
+      // As a basic approach, if vehicleName is passed, we might need to fetch all and filter in memory or use QueryBuilder.
+      // For now, this example will show how to do it if vehicleId is prioritized.
+      // If only vehicleName is available, a more complex query is needed.
+      // Let's assume for now we primarily filter by vehicleId if provided.
+      // If you have a direct relation or a way to query by vehicle name efficiently:
+      // findOptions.where = { vehicle: { name: vehicleName } }; // This might work if 'name' is a direct column and indexed.
+      // However, filtering by related entity's property typically needs a join, best done with QueryBuilder.
+      // For this example, we'll keep it simple and prioritize vehicleId.
+      // If only vehicleName is given, it won't filter by it directly here without QueryBuilder.
+      // A better approach for vehicleName would be: fetch vehicle by name, then use its ID.
     }
-    if (vehicleName) {
-      this.logger.log(`Filtering by vehicleName: ${vehicleName}`);
+
+    try {
+      const components = await this.componentsRepository.find(findOptions);
+      this.logger.log(`[FIND_ALL SUCCESS] Found ${components.length} components.`);
+      return components;
+    } catch (error) {
+      this.logger.error(`[FIND_ALL DB EXCEPTION] Error finding components: ${error.message}`, error.stack);
+      throw error;
     }
-    return Promise.resolve([]); // Mock
   }
 
   async findOne(id: number): Promise<MaintenanceComponent> {
-    this.logger.log(`Finding maintenance component with id: ${id}`);
-    // const component = await this.componentsRepository.findOne({ where: { id }, relations: ['vehicle'] });
-    // if (!component) {
-    //   throw new NotFoundException(`MaintenanceComponent with ID "${id}" not found.`);
-    // }
-    // return component;
-    // Mock
-    const mockDto: CreateMaintenanceComponentDto = {
-        name: "Mock Component",
-        vehicle_id: 1,
-        maintenance_type: MaintenanceType.MILEAGE,
-        maintenance_value: 10000,
-        unit: "km"
-    };
-    const mockComponent = {
-        id,
-        ...mockDto,
-        created_at: new Date(),
-        updated_at: new Date(),
-        vehicle: { id: mockDto.vehicle_id } as Vehicle,
-        maintenanceRecords: []
-    } as unknown as MaintenanceComponent;
-    return Promise.resolve(mockComponent); 
+    this.logger.log(`[FIND_ONE START] ID: ${id}`);
+    try {
+      const component = await this.componentsRepository.findOne({
+        where: { id },
+        relations: ['vehicle'], // Load the vehicle relation
+      });
+
+      if (!component) {
+        this.logger.warn(`[FIND_ONE] Component not found, ID: ${id}`);
+        throw new NotFoundException(`MaintenanceComponent with ID "${id}" not found.`);
+      }
+      this.logger.log(`[FIND_ONE SUCCESS] Component found: ${JSON.stringify(component)}`);
+      return component;
+    } catch (error) {
+      this.logger.error(`[FIND_ONE DB EXCEPTION] Error finding component: ${error.message}`, error.stack);
+      throw error;
+    }
   }
 
   async update(

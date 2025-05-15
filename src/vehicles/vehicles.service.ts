@@ -18,6 +18,34 @@ export class VehiclesService {
   async create(createVehicleDto: CreateVehicleDto, userId: number): Promise<Vehicle> {
     this.logger.log(`Attempting to create vehicle for user ${userId} with DTO: ${JSON.stringify(createVehicleDto)}`);
     
+    // ADD DUPLICATE CHECK LOGIC START
+    // Check for duplicate name for the same user
+    const existingVehicleByName = await this.vehiclesRepository.findOne({
+      where: { 
+        name: createVehicleDto.name,
+        user: { id: userId }
+      }
+    });
+    if (existingVehicleByName) {
+      this.logger.warn(`Vehicle with name "${createVehicleDto.name}" already exists for user ${userId}.`);
+      throw new ConflictException(`您已拥有名为 "${createVehicleDto.name}" 的车辆。`);
+    }
+
+    // Check for duplicate plate_number for the same user, if plate_number is provided and not empty
+    if (createVehicleDto.plate_number && createVehicleDto.plate_number.trim() !== '') {
+      const existingVehicleByPlate = await this.vehiclesRepository.findOne({
+        where: {
+          plate_number: createVehicleDto.plate_number,
+          user: { id: userId }
+        }
+      });
+      if (existingVehicleByPlate) {
+        this.logger.warn(`Vehicle with plate number "${createVehicleDto.plate_number}" already exists for user ${userId}.`);
+        throw new ConflictException(`您已拥有车牌号为 "${createVehicleDto.plate_number}" 的车辆。`);
+      }
+    }
+    // ADD DUPLICATE CHECK LOGIC END
+    
     const newVehicle = this.vehiclesRepository.create(createVehicleDto);
     
     // Associate the vehicle with the user
@@ -33,6 +61,12 @@ export class VehiclesService {
       return savedVehicle;
     } catch (error) {
       this.logger.error(`Error saving vehicle to database: ${error.message}`, error.stack);
+      // Catching specific database errors for unique constraints might still be useful
+      // if the above checks somehow miss a race condition or if DB has other constraints.
+      if (error.code === '23505' || (error.constructor.name === 'QueryFailedError' && error.message.toLowerCase().includes('unique constraint'))) { // PostgreSQL and generic
+        this.logger.warn(`Database-level unique constraint violation for user ${userId}, DTO: ${JSON.stringify(createVehicleDto)}`);
+        throw new ConflictException('车辆名称或车牌号与现有车辆冲突。');
+      }
       throw error; 
     }
   }

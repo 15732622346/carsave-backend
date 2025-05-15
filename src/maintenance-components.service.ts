@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
+import { Injectable, NotFoundException, BadRequestException, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { MaintenanceComponent } from './database/entities/maintenance-component.entity';
@@ -21,6 +21,8 @@ export enum MaintenanceStatus {
 
 @Injectable()
 export class MaintenanceComponentsService {
+  private readonly logger = new Logger(MaintenanceComponentsService.name);
+
   constructor(
     @InjectRepository(MaintenanceComponent)
     private componentsRepository: Repository<MaintenanceComponent>,
@@ -33,42 +35,43 @@ export class MaintenanceComponentsService {
   async create(
     createComponentDto: CreateMaintenanceComponentDto,
   ): Promise<MaintenanceComponent> {
-    // 1. Find the associated vehicle to get current mileage
+    this.logger.log(`[CREATE START] DTO: ${JSON.stringify(createComponentDto)}`);
+
     const vehicle = await this.vehiclesRepository.findOne({ 
         where: { id: createComponentDto.vehicle_id } 
     });
     if (!vehicle) {
+        this.logger.warn(`[CREATE] Vehicle not found, ID: ${createComponentDto.vehicle_id}`);
         throw new BadRequestException(`Vehicle with ID "${createComponentDto.vehicle_id}" not found.`);
     }
+    this.logger.log(`[CREATE] Found vehicle: ${JSON.stringify(vehicle)}`);
 
-    // 2. Create the basic component entity from DTO
     const newComponent = this.componentsRepository.create(createComponentDto);
+    this.logger.log(`[CREATE] Component entity created (before calculations): ${JSON.stringify(newComponent)}`);
 
-    // 3. Calculate and set initial target values
     const now = new Date();
     if (newComponent.maintenance_type === 'mileage') {
       newComponent.target_maintenance_mileage = vehicle.mileage + newComponent.maintenance_value;
-      newComponent.target_maintenance_date = null; // Ensure date target is null
-      // Set last_maintenance_date to null initially for mileage components, 
-      // or maybe to vehicle manufacturing date if available?
-      // For simplicity, let's keep it null unless a record exists.
+      newComponent.target_maintenance_date = null; 
       newComponent.last_maintenance_date = null; 
     } else if (newComponent.maintenance_type === 'date') {
-      // Calculate target date based on current date + interval
       newComponent.target_maintenance_date = addDays(now, newComponent.maintenance_value);
-      newComponent.target_maintenance_mileage = null; // Ensure mileage target is null
-      // Set last_maintenance_date to today for date-based components 
-      // as the cycle starts from now.
+      newComponent.target_maintenance_mileage = null; 
       newComponent.last_maintenance_date = now;
     } else {
-       // Handle potential unknown maintenance type if enum allows more values
+       this.logger.error(`[CREATE] Invalid maintenance type: ${newComponent.maintenance_type}`);
        throw new BadRequestException(`Invalid maintenance type: ${newComponent.maintenance_type}`);
     }
+    this.logger.log(`[CREATE] Component after calculations (before save): ${JSON.stringify(newComponent)}`);
     
-    console.log('[MaintenanceComponentsService Create] Component before save:', JSON.stringify(newComponent, null, 2));
-
-    // 4. Save the component with calculated targets
-    return this.componentsRepository.save(newComponent);
+    try {
+      const savedComponent = await this.componentsRepository.save(newComponent);
+      this.logger.log(`[CREATE SUCCESS] Saved component: ${JSON.stringify(savedComponent)}`);
+      return savedComponent;
+    } catch (error) {
+      this.logger.error(`[CREATE ERROR] Failed to save component: ${error.message}`, error.stack);
+      throw error;
+    }
   }
 
   async findAll(vehicleName?: string): Promise<MaintenanceComponent[]> {
@@ -109,22 +112,43 @@ export class MaintenanceComponentsService {
     id: number,
     updateComponentDto: UpdateMaintenanceComponentDto,
   ): Promise<MaintenanceComponent> {
-    // TODO: Add validation if vehicle_id is being changed
+    this.logger.log(`[UPDATE START] Component ID: ${id}, DTO: ${JSON.stringify(updateComponentDto)}`);
+
     const component = await this.componentsRepository.preload({
       id: id,
       ...updateComponentDto,
     });
     if (!component) {
+      this.logger.warn(`[UPDATE] Component not found for preload, ID: ${id}`);
       throw new NotFoundException(`Component with ID "${id}" not found`);
     }
-    return this.componentsRepository.save(component);
+    this.logger.log(`[UPDATE] Component after preload (before save): ${JSON.stringify(component)}`);
+
+    try {
+      const updatedComponent = await this.componentsRepository.save(component);
+      this.logger.log(`[UPDATE SUCCESS] Saved component: ${JSON.stringify(updatedComponent)}`);
+      return updatedComponent;
+    } catch (error) {
+      this.logger.error(`[UPDATE ERROR] Failed to save component ID ${id}: ${error.message}`, error.stack);
+      throw error;
+    }
   }
 
   async remove(id: number): Promise<void> {
-    const result = await this.componentsRepository.delete(id);
-    if (result.affected === 0) {
+    this.logger.log(`[REMOVE START] Component ID: ${id}`);
+    
+    const componentExists = await this.componentsRepository.findOne({ where: {id }});
+    if (!componentExists) {
+      this.logger.warn(`[REMOVE] Component not found, ID: ${id}. Cannot delete.`);
       throw new NotFoundException(`Component with ID "${id}" not found`);
     }
+    this.logger.log(`[REMOVE] Component found, attempting deletion: ${JSON.stringify(componentExists)}`);
+
+    const result = await this.componentsRepository.delete(id);
+    if (result.affected === 0) { 
+      this.logger.warn(`[REMOVE WARN] Deletion reported 0 affected rows for ID: ${id}, though it was found.`);
+    }
+    this.logger.log(`[REMOVE SUCCESS] Component ID: ${id} deleted. Affected rows: ${result.affected}`);
   }
 
   // --- Business Logic Methods ---
