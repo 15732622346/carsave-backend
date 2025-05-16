@@ -1,4 +1,11 @@
-import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, UpdateDateColumn, OneToMany } from 'typeorm';
+import {
+  Entity,
+  PrimaryGeneratedColumn,
+  Column,
+  CreateDateColumn,
+  UpdateDateColumn,
+  OneToMany,
+} from 'typeorm';
 import { Vehicle } from './vehicle.entity';
 
 @Entity('users') // 'users' 是数据库中的表名
@@ -20,7 +27,7 @@ export class User {
 
   // gender, city, province, country 在您的 SQL 中没有，如果 User 实体需要可以保留，否则移除
   // @Column({ nullable: true })
-  // gender?: number; 
+  // gender?: number;
 
   // @Column({ nullable: true })
   // city?: string;
@@ -44,4 +51,4 @@ export class User {
   // Define relationship with Vehicle
   @OneToMany(() => Vehicle, (vehicle) => vehicle.user)
   vehicles: Vehicle[];
-} 
+}

@@ -4,4 +4,4 @@ export interface WxSession {
   unionid?: string;
   errcode?: number;
   errmsg?: string;
-} 
+}

@@ -19,11 +19,14 @@ export class AuthService {
     private readonly httpService: HttpService,
     private readonly configService: ConfigService,
     private readonly userService: UserService, // 注入 UserService (模拟)
-    private readonly jwtService: JwtService,  // 注入 JwtService
+    private readonly jwtService: JwtService, // 注入 JwtService
   ) {
     // this.logger.log('AuthService initialized with JwtService.');
-    this.WECHAT_APP_ID = this.configService.get<string>('WECHAT_APP_ID') || 'YOUR_WECHAT_APP_ID';
-    this.WECHAT_APP_SECRET = this.configService.get<string>('WECHAT_APP_SECRET') || 'YOUR_WECHAT_APP_SECRET';
+    this.WECHAT_APP_ID =
+      this.configService.get<string>('WECHAT_APP_ID') || 'YOUR_WECHAT_APP_ID';
+    this.WECHAT_APP_SECRET =
+      this.configService.get<string>('WECHAT_APP_SECRET') ||
+      'YOUR_WECHAT_APP_SECRET';
 
     if (
       !process.env.WECHAT_APPID ||
@@ -45,7 +48,7 @@ export class AuthService {
     try {
       const url = `https://api.weixin.qq.com/sns/jscode2session?appid=${this.configService.get<string>('WECHAT_APP_ID')}&secret=${this.configService.get<string>('WECHAT_APP_SECRET')}&js_code=${code}&grant_type=authorization_code`;
       // this.logger.debug(`Requesting WeChat session from URL: ${url}`);
-      
+
       // this.logger.debug(`Attempting to call actual WeChat API.`);
       const response = await firstValueFrom(
         this.httpService.get<WxSession>(url),
@@ -75,7 +78,9 @@ export class AuthService {
       // this.logger.log(`Successfully obtained openid: ${wxSession.openid} and session_key.`);
 
       // this.logger.log(`Checking for user with openid: ${wxSession.openid}`);
-      let user: User | null = await this.userService.findByOpenid(wxSession.openid);
+      let user: User | null = await this.userService.findByOpenid(
+        wxSession.openid,
+      );
 
       if (!user) {
         // this.logger.log(`User with openid ${wxSession.openid} not found. Creating new user.`);
@@ -83,7 +88,10 @@ export class AuthService {
         // 这里可以根据需要决定是否需要昵称、头像等信息，如果需要，通常从小程序端传递
         // const { userInfo } = wxLoginDto; // 假设 wxLoginDto 扩展了可以包含 userInfo
         // user = await this.userService.createWithOpenid(wxSession.openid, wxSession.session_key, userInfo);
-        user = await this.userService.createWithOpenid(wxSession.openid, wxSession.session_key);
+        user = await this.userService.createWithOpenid(
+          wxSession.openid,
+          wxSession.session_key,
+        );
         // this.logger.log(`New user created with ID: ${user.id} for openid ${wxSession.openid}.`);
       } else {
         // this.logger.log(`User found with openid ${wxSession.openid}. User ID: ${user.id}`);
@@ -95,7 +103,7 @@ export class AuthService {
       const payload = { sub: user.id, openid: user.openid }; // 确保 payload 中包含 sub (userId)
       const token = await this.jwtService.signAsync(payload);
       // this.logger.log(`Generated JWT successfully.`);
-      
+
       // this.logger.log(`Login process successful for openid: ${wxSession.openid}. User ID: ${user.id}`);
       return {
         statusCode: HttpStatus.OK,
@@ -105,11 +113,20 @@ export class AuthService {
           user: user, // 返回完整的用户对象 (TypeORM 实体)
         },
       };
+    } catch (err: unknown) {
+      let errorMessage = 'An unknown error occurred during wxLogin';
+      let errorStack: string | undefined = undefined;
 
-    } catch (error) {
-      this.logger.error(`wxLogin failed: ${error.message}`, error.stack);
-      if (error instanceof HttpException) {
-        throw error;
+      if (err instanceof Error) {
+        errorMessage = err.message;
+        errorStack = err.stack;
+      } else {
+        errorMessage = String(err);
+      }
+      this.logger.error(`wxLogin failed: ${errorMessage}`, errorStack);
+
+      if (err instanceof HttpException) {
+        throw err; // Re-throw if it's already an HttpException
       }
       throw new HttpException(
         'Internal server error during WeChat login.',
@@ -119,4 +136,4 @@ export class AuthService {
   }
 
   // 后续可以添加 wxRegister, updateUserProfile 等方法
-} 
+}

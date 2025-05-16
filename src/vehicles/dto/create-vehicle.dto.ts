@@ -1,4 +1,4 @@
-import { IsString, IsOptional, IsNumber, IsDateString, Matches } from 'class-validator';
+import { IsString, IsOptional, IsNumber, IsDateString } from 'class-validator';
 
 export class CreateVehicleDto {
   @IsString()
@@ -19,4 +19,4 @@ export class CreateVehicleDto {
   @IsString()
   @IsOptional()
   image?: string; // URL or path to image
-} 
+}

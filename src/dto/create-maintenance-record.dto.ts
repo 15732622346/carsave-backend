@@ -31,4 +31,4 @@ export class CreateMaintenanceRecordDto {
   @IsOptional()
   @IsString()
   notes?: string;
-} 
+}

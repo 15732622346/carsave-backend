@@ -1,4 +1,10 @@
-import { IsString, IsNotEmpty, IsNumber, IsOptional, IsEnum } from 'class-validator';
+import {
+  IsString,
+  IsNotEmpty,
+  IsNumber,
+  IsOptional,
+  IsEnum,
+} from 'class-validator';
 
 export enum MaintenanceType {
   MILEAGE = 'mileage',
@@ -36,7 +42,7 @@ export class CreateMaintenanceComponentDto {
 
   @IsNumber()
   @IsOptional()
-  overall_target_mileage?: number; 
+  overall_target_mileage?: number;
 
   // Add other fields as necessary, like attention_threshold, warning_threshold, etc.
-} 
+}

@@ -1,4 +1,10 @@
-import { IsNotEmpty, IsNumber, IsString, IsDateString, IsOptional } from 'class-validator';
+import {
+  IsNotEmpty,
+  IsNumber,
+  IsString,
+  IsDateString,
+  IsOptional,
+} from 'class-validator';
 
 export class CreateMaintenanceRecordDto {
   @IsNumber()
@@ -22,4 +28,4 @@ export class CreateMaintenanceRecordDto {
   notes?: string;
 
   // Fields like cost, location, etc., can be added as needed
-} 
+}

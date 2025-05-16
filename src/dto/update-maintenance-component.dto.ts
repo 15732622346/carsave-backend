@@ -3,4 +3,4 @@ import { CreateMaintenanceComponentDto } from './create-maintenance-component.dt
 
 export class UpdateMaintenanceComponentDto extends PartialType(
   CreateMaintenanceComponentDto,
-) {} 
+) {}

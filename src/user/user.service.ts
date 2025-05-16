@@ -27,11 +27,15 @@ export class UserService {
     return user;
   }
 
-  async createWithOpenid(openid: string, sessionKey?: string, userData?: Partial<User>): Promise<User> {
+  async createWithOpenid(
+    openid: string,
+    sessionKey?: string,
+    userData?: Partial<User>,
+  ): Promise<User> {
     this.logger.log(`UserService: Creating new user with openid: ${openid}`);
     // sessionKey 暂时不存入数据库，如果需要，User 实体需要对应字段
     // userData 可以包含 nickname, avatarUrl 等，如果小程序在登录时能获取到并传递过来
-    
+
     const newUserEntity = this.usersRepository.create({
       openid,
       nickName: userData?.nickName, // 如果没有提供，则为 null (符合实体定义)
@@ -40,7 +44,9 @@ export class UserService {
     });
 
     const savedUser = await this.usersRepository.save(newUserEntity);
-    this.logger.log(`UserService: New user created successfully with id: ${savedUser.id} and openid: ${savedUser.openid}`);
+    this.logger.log(
+      `UserService: New user created successfully with id: ${savedUser.id} and openid: ${savedUser.openid}`,
+    );
     return savedUser;
   }
 
@@ -49,12 +55,12 @@ export class UserService {
     this.logger.log(`UserService: Searching for user with id: ${id}`);
     const user = await this.usersRepository.findOne({ where: { id } });
     if (user) {
-        this.logger.log(`UserService: User found by id: ${id}`);
+      this.logger.log(`UserService: User found by id: ${id}`);
     } else {
-        this.logger.log(`UserService: User not found by id: ${id}`);
+      this.logger.log(`UserService: User not found by id: ${id}`);
     }
     return user;
   }
 
   // 其他用户相关方法可以加在这里...
-} 
+}

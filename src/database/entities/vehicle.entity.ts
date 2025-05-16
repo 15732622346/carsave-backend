@@ -39,7 +39,10 @@ export class Vehicle {
   updated_at: Date;
 
   // Foreign key for User
-  @ManyToOne(() => User, (user) => user.vehicles, { nullable: false, onDelete: 'CASCADE' })
+  @ManyToOne(() => User, (user) => user.vehicles, {
+    nullable: false,
+    onDelete: 'CASCADE',
+  })
   @JoinColumn({ name: 'user_id' })
   user: User;
 
@@ -49,4 +52,4 @@ export class Vehicle {
 
   @OneToMany(() => MaintenanceRecord, (record) => record.vehicle)
   maintenanceRecords: MaintenanceRecord[];
-} 
+}

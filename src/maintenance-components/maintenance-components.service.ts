@@ -1,13 +1,26 @@
 // src/maintenance-components/maintenance-components.service.ts
-import { Injectable, Logger, NotFoundException, BadRequestException, ConflictException, InternalServerErrorException } from '@nestjs/common';
+import {
+  Injectable,
+  Logger,
+  NotFoundException,
+  ConflictException,
+  InternalServerErrorException,
+} from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { Repository, DeepPartial } from 'typeorm';
 import { MaintenanceComponent } from '../database/entities/maintenance-component.entity';
-import { CreateMaintenanceComponentDto, MaintenanceType } from './dto/create-maintenance-component.dto';
+import {
+  CreateMaintenanceComponentDto,
+  MaintenanceType,
+} from './dto/create-maintenance-component.dto';
 import { UpdateMaintenanceComponentDto } from './dto/update-maintenance-component.dto';
 import { Vehicle } from '../database/entities/vehicle.entity';
 import { MaintenanceRecord } from '../database/entities/maintenance-record.entity';
 import { ConfigService } from '@nestjs/config';
+
+interface ErrorWithCode extends Error {
+  code?: string | number;
+}
 
 @Injectable()
 export class MaintenanceComponentsService {
@@ -25,97 +38,128 @@ export class MaintenanceComponentsService {
 
   async create(
     createComponentDto: CreateMaintenanceComponentDto,
+    userId: number,
   ): Promise<MaintenanceComponent> {
-    // this.logger.log(`[CREATE START] DTO: ${JSON.stringify(createComponentDto)}`);
-    const { vehicle_id, maintenance_type, maintenance_value, ...restOfDto } = createComponentDto;
+    this.logger.log(
+      `[CREATE START] UserID: ${userId}, DTO: ${JSON.stringify(createComponentDto)}`,
+    );
 
-    const vehicle = await this.vehicleRepository.findOne({ where: { id: vehicle_id } });
+    const { vehicle_id, maintenance_type, maintenance_value, ...restOfDto } =
+      createComponentDto;
+
+    // Validate vehicle existence and ownership
+    const vehicle = await this.vehicleRepository.findOne({
+      where: { id: vehicle_id, user: { id: userId } },
+    });
     if (!vehicle) {
-        this.logger.warn(`[CREATE] Vehicle not found, ID: ${vehicle_id}`);
-        throw new NotFoundException(`Vehicle with ID ${vehicle_id} not found.`);
+      this.logger.warn(
+        `[CREATE] Vehicle not found or does not belong to user. VehicleID: ${vehicle_id}, UserID: ${userId}`,
+      );
+      throw new NotFoundException(
+        `Vehicle with ID "${vehicle_id}" not found or not associated with your account.`,
+      );
     }
     // this.logger.log(`[CREATE] Vehicle found: ${JSON.stringify(vehicle)}`);
 
     const dataForEntity: Partial<MaintenanceComponent> = {
-        ...restOfDto,
-        vehicle: { id: vehicle_id } as Vehicle,
-        maintenance_type,
-        maintenance_value,
-        // Ensure target_maintenance_date is Date or null
-        target_maintenance_date: restOfDto.target_maintenance_date ? new Date(restOfDto.target_maintenance_date) : null,
+      ...restOfDto,
+      vehicle: { id: vehicle_id } as Vehicle, // Link to existing vehicle by ID
+      maintenance_type, // This is of type MaintenanceType from the DTO
+      maintenance_value,
+      // Ensure target_maintenance_date is a Date object or null
+      target_maintenance_date: restOfDto.target_maintenance_date
+        ? new Date(restOfDto.target_maintenance_date)
+        : null,
     };
 
-    if (maintenance_type === 'mileage') {
-        if (createComponentDto.target_maintenance_mileage === undefined || createComponentDto.target_maintenance_mileage === null) {
-            if (vehicle.mileage !== null && vehicle.mileage !== undefined && maintenance_value !== null && maintenance_value !== undefined) {
-                dataForEntity.target_maintenance_mileage = vehicle.mileage + maintenance_value;
-                // this.logger.log(`[CREATE] Calculated target_maintenance_mileage: ${dataForEntity.target_maintenance_mileage}`);
-            } else {
-                this.logger.warn('[CREATE] Cannot calculate target_maintenance_mileage due to missing vehicle.mileage or dto.maintenance_value. It will be null.');
-                dataForEntity.target_maintenance_mileage = null;
-            }
-        } else {
-            dataForEntity.target_maintenance_mileage = createComponentDto.target_maintenance_mileage;
-            // this.logger.log(`[CREATE] Using user-provided target_maintenance_mileage: ${dataForEntity.target_maintenance_mileage}`);
-        }
-        dataForEntity.target_maintenance_date = null; // Ensure date is null for mileage type
-    } else if (maintenance_type === 'date') {
-        if (createComponentDto.target_maintenance_date === undefined || createComponentDto.target_maintenance_date === null) {
-            if (maintenance_value !== null && maintenance_value !== undefined) {
-                const today = new Date();
-                today.setDate(today.getDate() + maintenance_value);
-                dataForEntity.target_maintenance_date = today // Store as Date object
-                // this.logger.log(`[CREATE] Calculated target_maintenance_date: ${dataForEntity.target_maintenance_date.toISOString().split('T')[0]}`);
-            } else {
-                this.logger.warn('[CREATE] Cannot calculate target_maintenance_date due to missing dto.maintenance_value. It will be null.');
-                dataForEntity.target_maintenance_date = null;
-            }
-        } else {
-            // Ensure it's a Date object if a string is passed
-            dataForEntity.target_maintenance_date = new Date(createComponentDto.target_maintenance_date);
-            // this.logger.log(`[CREATE] Using user-provided target_maintenance_date (already converted): ${dataForEntity.target_maintenance_date}`);
-        }
-        dataForEntity.target_maintenance_mileage = null; // Ensure mileage is null for date type
+    // Conditional logic for target_maintenance_mileage and target_maintenance_date
+    if (maintenance_type === MaintenanceType.MILEAGE) {
+      if (
+        createComponentDto.target_maintenance_mileage === undefined ||
+        createComponentDto.target_maintenance_mileage === null
+      ) {
+        throw new ConflictException(
+          'target_maintenance_mileage is required for mileage-based maintenance type.',
+        );
+      }
+      dataForEntity.target_maintenance_mileage =
+        createComponentDto.target_maintenance_mileage;
+      dataForEntity.target_maintenance_date = null; // Ensure date is null for mileage type
+    } else if (maintenance_type === MaintenanceType.DATE) {
+      if (!restOfDto.target_maintenance_date) {
+        throw new ConflictException(
+          'target_maintenance_date is required for date-based maintenance type.',
+        );
+      }
+      dataForEntity.target_maintenance_mileage = null; // Ensure mileage is null for date type
     }
 
-    const componentEntity = this.componentsRepository.create(dataForEntity);
-    // this.logger.log(`[CREATE] Component entity created with potentially calculated targets: ${JSON.stringify(componentEntity)}`);
+    const componentEntity = this.componentsRepository.create(
+      dataForEntity as DeepPartial<MaintenanceComponent>,
+    );
+    // this.logger.log(`[CREATE] Component entity created: ${JSON.stringify(componentEntity)}`);
 
     try {
-        const savedComponent = await this.componentsRepository.save(componentEntity);
-        // this.logger.log(`[CREATE SUCCESS] Component saved, ID: ${savedComponent.id}, Data: ${JSON.stringify(savedComponent)}`);
+      const savedComponent =
+        await this.componentsRepository.save(componentEntity);
+      // this.logger.log(`[CREATE SUCCESS] Component saved, ID: ${savedComponent.id}, Data: ${JSON.stringify(savedComponent)}`);
 
-        // Reload to include relations, especially the vehicle object
-        const reloadedComponent = await this.componentsRepository.findOne({
-            where: { id: savedComponent.id },
-            relations: ['vehicle'],
-        });
-        if (!reloadedComponent) {
-            this.logger.error(`[CREATE] Failed to reload component after save, ID: ${savedComponent.id}`);
-            // Potentially throw error or return savedComponent if relations are not strictly needed immediately
-            return savedComponent; 
+      // Reload to include relations, especially the vehicle object
+      const reloadedComponent = await this.componentsRepository.findOne({
+        where: { id: savedComponent.id },
+        relations: ['vehicle'],
+      });
+      if (!reloadedComponent) {
+        this.logger.error(
+          `[CREATE] Failed to reload component after save, ID: ${savedComponent.id}`,
+        );
+        // Potentially throw error or return savedComponent if relations are not strictly needed immediately
+        return savedComponent;
+      }
+      // this.logger.log(`[CREATE] Component reloaded with relations: ${JSON.stringify(reloadedComponent)}`);
+      return reloadedComponent;
+    } catch (err: unknown) {
+      let errorMessage = 'Error saving component';
+      let errorStack: string | undefined;
+      let errorCode: string | number | undefined = undefined;
+
+      if (err instanceof Error) {
+        errorMessage = err.message;
+        errorStack = err.stack;
+        if ('code' in err) {
+          errorCode = (err as ErrorWithCode).code;
         }
-        // this.logger.log(`[CREATE] Component reloaded with relations: ${JSON.stringify(reloadedComponent)}`);
-        return reloadedComponent;
-    } catch (error) {
-        this.logger.error(`[CREATE DB EXCEPTION] Error saving component: ${error.message}`, error.stack);
-        if (error.code === '23505') { // Unique constraint violation
-            this.logger.warn(`[CREATE] Unique constraint violation: ${error.message}`);
-            throw new ConflictException('A component with this name or configuration already exists for this vehicle.');
-        }
-        throw new InternalServerErrorException('Could not create maintenance component.');
+      } else {
+        errorMessage = String(err);
+      }
+
+      this.logger.error(`[CREATE DB EXCEPTION] ${errorMessage}`, errorStack);
+      if (errorCode === '23505') {
+        this.logger.warn(
+          `[CREATE] Unique constraint violation: ${errorMessage}`,
+        );
+        throw new ConflictException(
+          'A component with this name or details already exists for this vehicle.',
+        );
+      }
+      throw new InternalServerErrorException(errorMessage);
     }
   }
 
-  async findAll(userId: number, vehicleId?: number): Promise<MaintenanceComponent[]> {
+  async findAll(
+    userId: number,
+    vehicleId?: number,
+  ): Promise<MaintenanceComponent[]> {
     // this.logger.log(`[FIND_ALL START] userId: ${userId}, vehicleId: ${vehicleId}`);
-    const queryBuilder = this.componentsRepository.createQueryBuilder('component')
+    const queryBuilder = this.componentsRepository
+      .createQueryBuilder('component')
       .leftJoinAndSelect('component.vehicle', 'vehicle')
       .leftJoin('vehicle.user', 'user');
 
     if (vehicleId) {
       // this.logger.log(`[FIND_ALL] Filtering by vehicleId: ${vehicleId} and userId: ${userId}`);
-      queryBuilder.where('vehicle.id = :vehicleId', { vehicleId })
+      queryBuilder
+        .where('vehicle.id = :vehicleId', { vehicleId })
         .andWhere('user.id = :userId', { userId });
     } else {
       // this.logger.log(`[FIND_ALL] Filtering by userId: ${userId} for all vehicles`);
@@ -126,15 +170,30 @@ export class MaintenanceComponentsService {
       const components = await queryBuilder.getMany();
       // this.logger.log(`[FIND_ALL SUCCESS] Found ${components.length} components for userId: ${userId}`);
       return components;
-    } catch (error) {
-      this.logger.error(`[FIND_ALL DB EXCEPTION] Error finding components for userId: ${userId}, vehicleId: ${vehicleId} - ${error.message}`, error.stack);
-      throw new InternalServerErrorException('Could not retrieve maintenance components.');
+    } catch (err: unknown) {
+      let errorMessage = 'Error finding components';
+      let errorStack: string | undefined;
+
+      if (err instanceof Error) {
+        errorMessage = err.message;
+        errorStack = err.stack;
+      } else {
+        errorMessage = String(err);
+      }
+      this.logger.error(
+        `[FIND_ALL DB EXCEPTION] UserID: ${userId}, VehicleID: ${vehicleId} - ${errorMessage}`,
+        errorStack,
+      );
+      throw new InternalServerErrorException(
+        'Could not retrieve maintenance components.',
+      );
     }
   }
 
   async findOne(id: number, userId: number): Promise<MaintenanceComponent> {
     // this.logger.log(`[FIND_ONE START] ID: ${id}, UserID: ${userId}`);
-    const component = await this.componentsRepository.createQueryBuilder('component')
+    const component = await this.componentsRepository
+      .createQueryBuilder('component')
       .leftJoinAndSelect('component.vehicle', 'vehicle')
       .leftJoin('vehicle.user', 'user')
       .where('component.id = :id', { id })
@@ -142,8 +201,12 @@ export class MaintenanceComponentsService {
       .getOne();
 
     if (!component) {
-      this.logger.warn(`[FIND_ONE] Component not found or not authorized for user. ID: ${id}, UserID: ${userId}`);
-      throw new NotFoundException(`Maintenance component with ID ${id} not found or not authorized.`);
+      this.logger.warn(
+        `[FIND_ONE] Component not found or not authorized for user. ID: ${id}, UserID: ${userId}`,
+      );
+      throw new NotFoundException(
+        `Maintenance component with ID ${id} not found or not authorized.`,
+      );
     }
     // this.logger.log(`[FIND_ONE SUCCESS] Component found: ${JSON.stringify(component)}`);
     return component;
@@ -152,68 +215,143 @@ export class MaintenanceComponentsService {
   async update(
     id: number,
     updateDto: UpdateMaintenanceComponentDto,
-    userId: number
+    userId: number,
   ): Promise<MaintenanceComponent> {
-    // this.logger.log(`[UPDATE START] ID: ${id}, UserID: ${userId}, DTO: ${JSON.stringify(updateDto)}`);
-    const component = await this.findOne(id, userId); 
-    // this.logger.log(`[UPDATE] Component found: ${JSON.stringify(component)}`);
+    this.logger.log(
+      `[UPDATE START] ID: ${id}, UserID: ${userId}, DTO: ${JSON.stringify(updateDto)}`,
+    );
+    const component = await this.findOne(id, userId);
 
-    if (updateDto.vehicle_id && updateDto.vehicle_id !== component.vehicle.id) {
-        const newVehicle = await this.vehicleRepository.findOne({ where: { id: updateDto.vehicle_id, user: { id: userId } } });
-        if (!newVehicle) {
-            this.logger.warn(`[UPDATE] New vehicle not found or not authorized for user. Vehicle ID: ${updateDto.vehicle_id}, UserID: ${userId}`);
-            throw new NotFoundException(`New vehicle with ID ${updateDto.vehicle_id} not found or not authorized for this user.`);
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    const { vehicle_id: _vehicle_id_unused, ...restOfUpdateDto } = updateDto;
+
+    Object.assign(component, restOfUpdateDto);
+
+    if (restOfUpdateDto.target_maintenance_date) {
+      component.target_maintenance_date = new Date(
+        restOfUpdateDto.target_maintenance_date,
+      );
+    }
+
+    if (updateDto.maintenance_type) {
+      if (updateDto.maintenance_type === MaintenanceType.MILEAGE) {
+        if (
+          updateDto.target_maintenance_mileage === undefined ||
+          updateDto.target_maintenance_mileage === null
+        ) {
+          throw new ConflictException(
+            'target_maintenance_mileage is required for mileage-based maintenance type.',
+          );
         }
-        component.vehicle = newVehicle;
-        // this.logger.log(`[UPDATE] Vehicle updated for component.`);
+        component.target_maintenance_mileage =
+          updateDto.target_maintenance_mileage;
+        component.target_maintenance_date = null;
+      } else if (updateDto.maintenance_type === MaintenanceType.DATE) {
+        if (!updateDto.target_maintenance_date) {
+          throw new ConflictException(
+            'target_maintenance_date is required for date-based maintenance type.',
+          );
+        }
+        component.target_maintenance_date = new Date(
+          updateDto.target_maintenance_date,
+        );
+        component.target_maintenance_mileage = null;
+      }
+    } else {
+      if (
+        component.maintenance_type === MaintenanceType.MILEAGE &&
+        updateDto.target_maintenance_mileage !== undefined
+      ) {
+        component.target_maintenance_mileage =
+          updateDto.target_maintenance_mileage;
+      }
+      if (
+        component.maintenance_type === MaintenanceType.DATE &&
+        updateDto.target_maintenance_date !== undefined
+      ) {
+        component.target_maintenance_date = new Date(
+          updateDto.target_maintenance_date,
+        );
+      }
     }
-
-    // Update other properties, ensuring date conversion if provided
-    const { target_maintenance_date, ...otherUpdateProps } = updateDto;
-    Object.assign(component, otherUpdateProps);
-    if (target_maintenance_date) {
-        component.target_maintenance_date = new Date(target_maintenance_date);
-    }
-
-    // this.logger.log(`[UPDATE] Component properties updated before save: ${JSON.stringify(component)}`);
 
     try {
-      const updatedComponent = await this.componentsRepository.save(component);
-      // this.logger.log(`[UPDATE SUCCESS] Component updated, ID: ${id}, Data: ${JSON.stringify(updatedComponent)}`);
+      await this.componentsRepository.save(component);
+      return this.findOne(id, userId);
+    } catch (err: unknown) {
+      let errorMessage = `Error updating component ${id}`;
+      let errorStack: string | undefined;
+      let errorCode: string | number | undefined = undefined;
 
-      const reloadedComponent = await this.componentsRepository.findOne({
-        where: { id: updatedComponent.id },
-        relations: ['vehicle'],
-      });
-      if (!reloadedComponent) {
-        this.logger.error(`[UPDATE] Failed to reload component after update, ID: ${updatedComponent.id}`);
-        return updatedComponent;
+      if (err instanceof Error) {
+        errorMessage = err.message;
+        errorStack = err.stack;
+        if ('code' in err) {
+          errorCode = (err as ErrorWithCode).code;
+        }
+      } else {
+        errorMessage = String(err);
       }
-      // this.logger.log(`[UPDATE] Component reloaded with relations: ${JSON.stringify(reloadedComponent)}`);
-      return reloadedComponent;
-    } catch (error) {
-      this.logger.error(`[UPDATE DB EXCEPTION] Error updating component: ${error.message}`, error.stack);
-      if (error.code === '23505') { // Unique constraint violation
-        this.logger.warn(`[UPDATE] Unique constraint violation: ${error.message}`);
-        throw new ConflictException('A component with this name or configuration already exists for this vehicle.');
+
+      this.logger.error(`[UPDATE DB EXCEPTION] ${errorMessage}`, errorStack);
+      if (errorCode === '23505') {
+        throw new ConflictException(
+          'Update failed due to a conflict (e.g., name already exists for this vehicle).',
+        );
       }
-      throw new InternalServerErrorException('Could not update maintenance component.');
+      throw new InternalServerErrorException(errorMessage);
     }
   }
 
   async remove(id: number, userId: number): Promise<void> {
     // this.logger.log(`[REMOVE START] ID: ${id}, UserID: ${userId}`);
     // Ensure the component exists and belongs to the user before attempting to delete
-    const component = await this.findOne(id, userId); // Will throw if not found/authorized
+    // const component = await this.findOne(id, userId); // Will throw if not found/authorized <-- REMOVE THIS LINE
     // this.logger.log(`[REMOVE] Component found: ${JSON.stringify(component)}`);
 
-    const result = await this.componentsRepository.delete(id);
-    if (result.affected === 0) {
-      this.logger.warn(`[REMOVE] No component found to delete with ID: ${id} (already checked, but confirming delete result)`);
-      // Not throwing an error here because findOne would have already thrown if not found.
-      // This state (affected === 0 after findOne passed) should ideally not be reached.
-    } else {
-      // this.logger.log(`[REMOVE SUCCESS] Component deleted, ID: ${id}, Affected rows: ${result.affected}`);
+    try {
+      // First, ensure the component belongs to the user by trying to fetch it.
+      // The findOne method already throws NotFoundException if not found or not authorized.
+      await this.findOne(id, userId); // Keep this call for check within try block
+      // this.logger.log(`[REMOVE] Component found, proceeding with deletion. ID: ${id}`);
+
+      // Manually delete related maintenance records first
+      const deleteRecordsResult = await this.maintenanceRecordsRepository
+        .createQueryBuilder()
+        .delete()
+        .from(MaintenanceRecord)
+        .where('component_id = :id', { id })
+        .execute();
+      this.logger.log(
+        `[REMOVE] Deleted ${deleteRecordsResult.affected || 0} related maintenance records for component ID: ${id}`,
+      );
+
+      const result = await this.componentsRepository.delete(id);
+
+      if (result.affected === 0) {
+        this.logger.warn(
+          `[REMOVE] Component not deleted, affected rows 0. ID: ${id}. This might mean it was already deleted.`,
+        );
+        // No throw here, as findOne would have thrown if it didn't exist.
+        // If it existed and now affected is 0, it might be a concurrent deletion.
+        // For a soft delete, this might be different. For hard delete, this is okay.
+      }
+      // this.logger.log(`[REMOVE SUCCESS] Component ID: ${id} deleted successfully.`);
+    } catch (err: unknown) {
+      let errorMessage = `Error removing component ${id}`;
+      let errorStack: string | undefined;
+
+      if (err instanceof Error) {
+        errorMessage = err.message;
+        errorStack = err.stack;
+      } else {
+        errorMessage = String(err);
+      }
+
+      this.logger.error(`[REMOVE DB EXCEPTION] ${errorMessage}`, errorStack);
+      throw new InternalServerErrorException(
+        `Could not remove maintenance component with ID ${id}.`,
+      );
     }
   }
-} 
+}

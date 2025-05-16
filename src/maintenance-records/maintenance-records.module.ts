@@ -10,7 +10,7 @@ import { MaintenanceComponent } from '../database/entities/maintenance-component
 @Module({
   imports: [
     TypeOrmModule.forFeature([
-      MaintenanceRecord, 
+      MaintenanceRecord,
       Vehicle, // Uncomment if VehicleRepository is injected in MaintenanceRecordsService
       MaintenanceComponent, // Uncomment if MaintenanceComponentRepository is injected
     ]),
@@ -19,4 +19,4 @@ import { MaintenanceComponent } from '../database/entities/maintenance-component
   providers: [MaintenanceRecordsService],
   exports: [MaintenanceRecordsService],
 })
-export class MaintenanceRecordsModule {} 
+export class MaintenanceRecordsModule {}

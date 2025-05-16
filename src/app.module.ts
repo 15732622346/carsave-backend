@@ -19,7 +19,8 @@ import { MaintenanceRecord } from './database/entities/maintenance-record.entity
   imports: [
     ConfigModule.forRoot({
       isGlobal: true,
-      envFilePath: process.env.NODE_ENV === 'development' ? '.env.development' : '.env',
+      envFilePath: [`.env.${process.env.NODE_ENV}`, '.env'],
+      ignoreEnvFile: process.env.NODE_ENV === 'test',
     }),
     TypeOrmModule.forRootAsync({
       imports: [ConfigModule],
@@ -36,7 +37,9 @@ import { MaintenanceRecord } from './database/entities/maintenance-record.entity
         logger.log(`DB_USERNAME: ${dbUsername}`);
         logger.log(`DB_DATABASE: ${dbDatabase}`);
         logger.log(`NODE_ENV: ${process.env.NODE_ENV}`);
-        logger.log(`Attempting to load env file from: ${process.env.NODE_ENV === 'development' ? '.env.development' : '.env'}`);
+        logger.log(
+          `Attempting to load env file from: ${process.env.NODE_ENV === 'development' ? '.env.development' : '.env'}`,
+        );
 
         return {
           type: 'mysql',

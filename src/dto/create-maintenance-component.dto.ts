@@ -49,4 +49,4 @@ export class CreateMaintenanceComponentDto {
   @Type(() => Date)
   @IsDate()
   last_maintenance_date?: Date;
-} 
+}

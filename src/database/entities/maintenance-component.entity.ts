@@ -56,4 +56,4 @@ export class MaintenanceComponent {
 
   @OneToMany(() => MaintenanceRecord, (record) => record.maintenanceComponent)
   maintenanceRecords: MaintenanceRecord[];
-} 
+}

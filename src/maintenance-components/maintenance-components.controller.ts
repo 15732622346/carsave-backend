@@ -24,31 +24,38 @@ import { AuthGuard } from '@nestjs/passport';
 export class MaintenanceComponentsController {
   private readonly logger = new Logger(MaintenanceComponentsController.name);
 
-  constructor(private readonly componentsService: MaintenanceComponentsService) {}
+  constructor(
+    private readonly componentsService: MaintenanceComponentsService,
+  ) {}
 
   @Post()
   create(
     @Body() createDto: CreateMaintenanceComponentDto,
-    // @GetUser() user: User, // Example: if components are user-specific via User relation not Vehicle
+    @Request() req: { user: { id: number } },
   ) {
-    this.logger.log(`Request to create maintenance component: ${JSON.stringify(createDto)}`);
-    // If components are directly tied to a user (besides through a vehicle),
-    // you might pass user.id to the service here.
-    return this.componentsService.create(createDto);
+    const userId = req.user.id;
+    this.logger.log(
+      `Request to create maintenance component for user ${userId}: ${JSON.stringify(createDto)}`,
+    );
+    return this.componentsService.create(createDto, userId);
   }
 
   @Get()
   findAll(
-    @Request() req,
-    @Query('vehicleId') vehicleId?: string, 
-  ) { 
+    @Request() req: { user: { id: number } },
+    @Query('vehicleId') vehicleId?: string,
+  ) {
     const userId = req.user.id;
-    this.logger.log(`Request to find all maintenance components for user ${userId}. Query: vehicleId=${vehicleId}`);
+    this.logger.log(
+      `Request to find all maintenance components for user ${userId}. Query: vehicleId=${vehicleId}`,
+    );
     let vehicleIdNum: number | undefined = undefined;
     if (vehicleId) {
       vehicleIdNum = parseInt(vehicleId, 10);
       if (isNaN(vehicleIdNum)) {
-        this.logger.warn('Invalid vehicleId query parameter for user ${userId}, it was NaN. Ignoring vehicleId filter.');
+        this.logger.warn(
+          'Invalid vehicleId query parameter for user ${userId}, it was NaN. Ignoring vehicleId filter.',
+        );
         vehicleIdNum = undefined; // Reset to undefined if parsing failed
       }
     }
@@ -56,9 +63,14 @@ export class MaintenanceComponentsController {
   }
 
   @Get(':id')
-  findOne(@Param('id', ParseIntPipe) id: number, @Request() req) {
+  findOne(
+    @Param('id', ParseIntPipe) id: number,
+    @Request() req: { user: { id: number } },
+  ) {
     const userId = req.user.id;
-    this.logger.log(`Request to find maintenance component with ID: ${id} for user ${userId}`);
+    this.logger.log(
+      `Request to find maintenance component with ID: ${id} for user ${userId}`,
+    );
     return this.componentsService.findOne(id, userId);
   }
 
@@ -66,17 +78,24 @@ export class MaintenanceComponentsController {
   update(
     @Param('id', ParseIntPipe) id: number,
     @Body() updateDto: UpdateMaintenanceComponentDto,
-    @Request() req,
+    @Request() req: { user: { id: number } },
   ) {
     const userId = req.user.id;
-    this.logger.log(`Request to update maintenance component ${id} for user ${userId} with: ${JSON.stringify(updateDto)}`);
+    this.logger.log(
+      `Request to update maintenance component ${id} for user ${userId} with: ${JSON.stringify(updateDto)}`,
+    );
     return this.componentsService.update(id, updateDto, userId);
   }
 
   @Delete(':id')
-  remove(@Param('id', ParseIntPipe) id: number, @Request() req) {
+  remove(
+    @Param('id', ParseIntPipe) id: number,
+    @Request() req: { user: { id: number } },
+  ) {
     const userId = req.user.id;
-    this.logger.log(`Request to delete maintenance component ${id} for user ${userId}`);
+    this.logger.log(
+      `Request to delete maintenance component ${id} for user ${userId}`,
+    );
     return this.componentsService.remove(id, userId);
   }
-} 
+}

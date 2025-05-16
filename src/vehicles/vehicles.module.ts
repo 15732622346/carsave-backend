@@ -14,4 +14,4 @@ import { Vehicle } from '../database/entities/vehicle.entity';
   providers: [VehiclesService],
   exports: [VehiclesService], // 如果其他模块需要使用 VehiclesService
 })
-export class VehiclesModule {} 
+export class VehiclesModule {}

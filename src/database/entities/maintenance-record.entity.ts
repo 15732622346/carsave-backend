@@ -49,9 +49,9 @@ export class MaintenanceRecord {
     (component) => component.maintenanceRecords,
     {
       onDelete: 'SET NULL', // Changed from CASCADE to SET NULL
-      nullable: true,    // Changed from false to true
+      nullable: true, // Changed from false to true
     },
   )
   @JoinColumn({ name: 'component_id' })
   maintenanceComponent: MaintenanceComponent | null; // Changed name to avoid conflict with import
-} 
+}

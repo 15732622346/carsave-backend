@@ -9,11 +9,15 @@ import { MaintenanceRecord } from '../database/entities/maintenance-record.entit
 
 @Module({
   imports: [
-    TypeOrmModule.forFeature([MaintenanceComponent, Vehicle, MaintenanceRecord]), // Add MaintenanceRecord here
+    TypeOrmModule.forFeature([
+      MaintenanceComponent,
+      Vehicle,
+      MaintenanceRecord,
+    ]), // Add MaintenanceRecord here
     // AuthModule, // PassportModule is usually configured in AuthModule and exported or global
   ],
   controllers: [MaintenanceComponentsController],
   providers: [MaintenanceComponentsService],
   exports: [MaintenanceComponentsService],
 })
-export class MaintenanceComponentsModule {} 
+export class MaintenanceComponentsModule {}
