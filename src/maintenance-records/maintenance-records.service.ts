@@ -51,65 +51,57 @@ export class MaintenanceRecordsService {
     }
   }
 
-  async findAll(vehicleId?: number, componentId?: number, vehicleName?: string): Promise<MaintenanceRecord[]> {
-    this.logger.log(`[Service findAll] Finding all records. Query Params: vehicleId=${vehicleId}, componentId=${componentId}, vehicleName=${vehicleName}`);
+  async findAll(userId: number, vehicleId?: number, componentId?: number): Promise<MaintenanceRecord[]> {
+    this.logger.log(`[Service findAll] Finding records for userId: ${userId}. Query Params: vehicleId=${vehicleId}, componentId=${componentId}`);
     
-    const findOptions: import('typeorm').FindManyOptions<MaintenanceRecord> = {
-      where: {},
-      relations: ['vehicle', 'maintenanceComponent'], // 根据实体定义加载关联数据
-      order: { maintenance_date: 'DESC', id: 'DESC' } // 按保养日期降序，然后按ID降序
-    };
+    const queryBuilder = this.recordsRepository.createQueryBuilder('record')
+      .innerJoinAndSelect('record.vehicle', 'vehicle')
+      .leftJoinAndSelect('record.maintenanceComponent', 'component')
+      .where('vehicle.user_id = :userId', { userId })
+      .orderBy('record.maintenance_date', 'DESC')
+      .addOrderBy('record.id', 'DESC');
 
     if (vehicleId !== undefined && vehicleId !== null) {
-      // @ts-ignore
-      findOptions.where.vehicle_id = vehicleId; // TypeORM 5+ 接受直接赋值
+      this.logger.log(`[Service findAll] Adding filter for vehicleId: ${vehicleId}`);
+      queryBuilder.andWhere('record.vehicle_id = :vehicleId', { vehicleId });
     }
-    // 注意：前端 MaintenanceView.vue 的 fetchMaintenanceData 传递的是 vehicleIdToFilter，
-    // 它会作为 vehicleIdentifier 传递给 store 的 fetchRecords，然后 store 的 fetchRecords 使用 params.vehicleId.
-    // 所以这里的 vehicleId 参数应该是有效的。
 
-    // componentId 过滤 (如果需要)
     if (componentId !== undefined && componentId !== null) {
-      // @ts-ignore
-      findOptions.where.component_id = componentId;
+      this.logger.log(`[Service findAll] Adding filter for componentId: ${componentId}`);
+      queryBuilder.andWhere('record.component_id = :componentId', { componentId });
     }
-
-    // vehicleName 过滤 (如果需要，这通常更复杂，可能需要连接查询或在获取后过滤)
-    // 目前，如果提供了 vehicleName，我们将忽略 vehicleId 进行查询，这可能不是最佳策略。
-    // 一个更好的方法是如果 vehicleName 存在，先通过 vehicleName 找到 vehicleId，然后再用 vehicleId 过滤。
-    // 但当前 DTO 和前端逻辑似乎更侧重于 vehicleId。
-    // 为了简单起见，如果 vehicleName 存在，我们将尝试通过它进行查询（假设 vehicle 关系已加载）。
-    // 这部分逻辑可以后续优化，目前主要解决 mock 问题。
 
     try {
-      this.logger.log(`[Service findAll] Executing find with options: ${JSON.stringify(findOptions)}`);
-      const records = await this.recordsRepository.find(findOptions);
-      this.logger.log(`[Service findAll] Found ${records.length} records.`);
-      
-      // 如果需要根据 vehicleName 进一步过滤 (当 vehicleId 未提供时)
-      if (vehicleName && (vehicleId === undefined || vehicleId === null) && records.length > 0) {
-        this.logger.log(`[Service findAll] Filtering by vehicleName: "${vehicleName}"`);
-        return records.filter(record => record.vehicle && record.vehicle.name === vehicleName);
-      }
+      this.logger.log(`[Service findAll] Executing query for userId: ${userId}`);
+      const records = await queryBuilder.getMany();
+      this.logger.log(`[Service findAll] Found ${records.length} records for userId: ${userId}.`);
       return records;
     } catch (error) {
-      this.logger.error(`[Service findAll] Error finding maintenance records: ${error.message}`, error.stack);
+      this.logger.error(`[Service findAll] Error finding maintenance records for userId: ${userId} - ${error.message}`, error.stack);
       throw error;
     }
   }
 
-  async findOne(id: number): Promise<MaintenanceRecord> {
-    this.logger.log(`[Service findOne] Finding maintenance record with id: ${id}`);
-    const record = await this.recordsRepository.findOne({
-      where: { id },
-      relations: ['vehicle', 'maintenanceComponent'],
-    });
-    if (!record) {
-      this.logger.warn(`[Service findOne] MaintenanceRecord with ID "${id}" not found.`);
-      throw new NotFoundException(`MaintenanceRecord with ID "${id}" not found.`);
+  async findOne(id: number, userId: number): Promise<MaintenanceRecord> {
+    this.logger.log(`[Service findOne] Finding maintenance record with id: ${id} for userId: ${userId}`);
+    try {
+      const record = await this.recordsRepository.createQueryBuilder('record')
+        .innerJoinAndSelect('record.vehicle', 'vehicle')
+        .leftJoinAndSelect('record.maintenanceComponent', 'component')
+        .where('record.id = :id', { id })
+        .andWhere('vehicle.user_id = :userId', { userId })
+        .getOne();
+      
+      if (!record) {
+        this.logger.warn(`[Service findOne] MaintenanceRecord with ID "${id}" not found or not accessible for userId: ${userId}.`);
+        throw new NotFoundException(`MaintenanceRecord with ID "${id}" not found or not accessible by this user.`);
+      }
+      this.logger.log(`[Service findOne] Found record for userId ${userId}: ${JSON.stringify(record)}`);
+      return record;
+    } catch (error) {
+      this.logger.error(`[Service findOne] Error finding record ${id} for userId ${userId}: ${error.message}`, error.stack);
+      throw error;
     }
-    this.logger.log(`[Service findOne] Found record: ${JSON.stringify(record)}`);
-    return record;
   }
 
   async update(id: number, dto: UpdateMaintenanceRecordDto): Promise<MaintenanceRecord> {

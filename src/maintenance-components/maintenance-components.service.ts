@@ -113,62 +113,50 @@ export class MaintenanceComponentsService {
     }
   }
 
-  async findAll(vehicleId?: number, vehicleName?: string): Promise<MaintenanceComponent[]> {
-    this.logger.log(`[FIND_ALL START] vehicleId: ${vehicleId}, vehicleName: ${vehicleName}`);
+  async findAll(userId: number, vehicleId?: number): Promise<MaintenanceComponent[]> {
+    this.logger.log(`[FIND_ALL START] userId: ${userId}, vehicleId: ${vehicleId}`);
     
-    const findOptions: import('typeorm').FindManyOptions<MaintenanceComponent> = {
-      relations: ['vehicle'], // Always load the vehicle relation
-      order: { name: 'ASC' }, // Optional: order by name or another field
-      // `where` will be added conditionally
-    };
+    const queryBuilder = this.componentsRepository.createQueryBuilder('component')
+      .innerJoinAndSelect('component.vehicle', 'vehicle') // Join and select all vehicle fields
+      .orderBy('component.name', 'ASC');
 
     if (vehicleId) {
-      this.logger.log(`[FIND_ALL] Filtering by vehicle_id: ${vehicleId}`);
-      findOptions.where = { vehicle_id: vehicleId }; // Filter by the direct foreign key column
-    } else if (vehicleName) {
-      this.logger.log(`[FIND_ALL] Filtering by vehicleName: ${vehicleName} - Note: This path is complex and typically requires QueryBuilder.`);
-      // Robust filtering by a related entity's name (vehicle.name) from the MaintenanceComponent repository
-      // usually requires a QueryBuilder to perform the necessary join and condition.
-      // Example (conceptual, would replace the .find() call and needs careful implementation):
-      // return this.componentsRepository.createQueryBuilder('component')
-      //   .innerJoinAndSelect('component.vehicle', 'vehicle', 'vehicle.name = :vehicleName', { vehicleName })
-      //   .orderBy('component.name', 'ASC')
-      //   .getMany();
-      // Since vehicleId is the primary filter used by the frontend for specific vehicles,
-      // and 'All Vehicles' implies no vehicleId, this vehicleName branch is secondary.
-      // If this branch is reached (vehicleId is null but vehicleName is present),
-      // and no specific where clause is constructed here for vehicleName, it will effectively fetch all components.
-      // For now, we do not add a `where` clause here, relying on `vehicleId` as the main filter mechanism.
+      this.logger.log(`[FIND_ALL] Filtering by vehicleId: ${vehicleId} and userId: ${userId}`);
+      queryBuilder
+        .where('component.vehicle_id = :vehicleId', { vehicleId })
+        .andWhere('vehicle.user_id = :userId', { userId });
+    } else {
+      this.logger.log(`[FIND_ALL] Filtering by userId: ${userId} for all vehicles`);
+      queryBuilder.where('vehicle.user_id = :userId', { userId });
     }
-    // If neither vehicleId nor an effective vehicleName filter is applied,
-    // findOptions.where will remain undefined, and TypeORM will fetch all entities, which is correct for "All Vehicles".
 
     try {
-      const components = await this.componentsRepository.find(findOptions);
-      this.logger.log(`[FIND_ALL SUCCESS] Found ${components.length} components.`);
+      const components = await queryBuilder.getMany();
+      this.logger.log(`[FIND_ALL SUCCESS] Found ${components.length} components for userId: ${userId}`);
       return components;
     } catch (error) {
-      this.logger.error(`[FIND_ALL DB EXCEPTION] Error finding components: ${error.message}`, error.stack);
+      this.logger.error(`[FIND_ALL DB EXCEPTION] Error finding components for userId: ${userId}, vehicleId: ${vehicleId} - ${error.message}`, error.stack);
       throw error;
     }
   }
 
-  async findOne(id: number): Promise<MaintenanceComponent> {
-    this.logger.log(`[FIND_ONE START] ID: ${id}`);
+  async findOne(id: number, userId: number): Promise<MaintenanceComponent> {
+    this.logger.log(`[FIND_ONE START] ID: ${id}, UserID: ${userId}`);
     try {
-      const component = await this.componentsRepository.findOne({
-        where: { id },
-        relations: ['vehicle'], // Load the vehicle relation
-      });
+      const component = await this.componentsRepository.createQueryBuilder('component')
+        .innerJoinAndSelect('component.vehicle', 'vehicle')
+        .where('component.id = :id', { id })
+        .andWhere('vehicle.user_id = :userId', { userId })
+        .getOne();
 
       if (!component) {
-        this.logger.warn(`[FIND_ONE] Component not found, ID: ${id}`);
-        throw new NotFoundException(`MaintenanceComponent with ID "${id}" not found.`);
+        this.logger.warn(`[FIND_ONE] Component not found or not authorized for user. ID: ${id}, UserID: ${userId}`);
+        throw new NotFoundException(`MaintenanceComponent with ID "${id}" not found or not accessible by this user.`);
       }
       this.logger.log(`[FIND_ONE SUCCESS] Component found: ${JSON.stringify(component)}`);
       return component;
     } catch (error) {
-      this.logger.error(`[FIND_ONE DB EXCEPTION] Error finding component: ${error.message}`, error.stack);
+      this.logger.error(`[FIND_ONE DB EXCEPTION] Error finding component for ID: ${id}, UserID: ${userId} - ${error.message}`, error.stack);
       throw error;
     }
   }

@@ -10,6 +10,7 @@ import {
   UseGuards,
   ParseIntPipe,
   Logger,
+  Request,
 } from '@nestjs/common';
 import { MaintenanceRecordsService } from './maintenance-records.service';
 import { CreateMaintenanceRecordDto } from './dto/create-maintenance-record.dto';
@@ -31,23 +32,38 @@ export class MaintenanceRecordsController {
 
   @Get()
   findAll(
-    // Query parameters to filter records, e.g., by vehicleId or componentId
+    @Request() req,
     @Query('vehicleId') vehicleId?: string,
     @Query('componentId') componentId?: string,
-    @Query('vehicleName') vehicleName?: string, // From HomeView.vue
   ) {
-    this.logger.log(`Request to find all maintenance records. Query: vehicleId=${vehicleId}, componentId=${componentId}, vehicleName=${vehicleName}`);
-    const vehicleIdNum = vehicleId ? parseInt(vehicleId, 10) : undefined;
-    const componentIdNum = componentId ? parseInt(componentId, 10) : undefined;
-    // Add warnings or BadRequestException for invalid parseInt results if needed
+    const userId = req.user.id;
+    this.logger.log(`Request to find all maintenance records for user ${userId}. Query: vehicleId=${vehicleId}, componentId=${componentId}`);
 
-    return this.recordsService.findAll(vehicleIdNum, componentIdNum, vehicleName);
+    let vehicleIdNum: number | undefined = undefined;
+    if (vehicleId) {
+      vehicleIdNum = parseInt(vehicleId, 10);
+      if (isNaN(vehicleIdNum)) {
+        this.logger.warn(`Invalid vehicleId query parameter for user ${userId}: ${vehicleId}. Ignoring filter.`);
+        vehicleIdNum = undefined;
+      }
+    }
+
+    let componentIdNum: number | undefined = undefined;
+    if (componentId) {
+      componentIdNum = parseInt(componentId, 10);
+      if (isNaN(componentIdNum)) {
+        this.logger.warn(`Invalid componentId query parameter for user ${userId}: ${componentId}. Ignoring filter.`);
+        componentIdNum = undefined;
+      }
+    }
+    return this.recordsService.findAll(userId, vehicleIdNum, componentIdNum);
   }
 
   @Get(':id')
-  findOne(@Param('id', ParseIntPipe) id: number) {
-    this.logger.log(`Request to find maintenance record with ID: ${id}`);
-    return this.recordsService.findOne(id);
+  findOne(@Param('id', ParseIntPipe) id: number, @Request() req) {
+    const userId = req.user.id;
+    this.logger.log(`Request to find maintenance record with ID: ${id} for user ${userId}`);
+    return this.recordsService.findOne(id, userId);
   }
 
   @Put(':id')

@@ -10,6 +10,7 @@ import {
   UseGuards,
   ParseIntPipe,
   Logger,
+  Request,
 } from '@nestjs/common';
 import { MaintenanceComponentsService } from './maintenance-components.service';
 import { CreateMaintenanceComponentDto } from './dto/create-maintenance-component.dto';
@@ -38,25 +39,27 @@ export class MaintenanceComponentsController {
 
   @Get()
   findAll(
+    @Request() req,
     @Query('vehicleId') vehicleId?: string, 
-    @Query('vehicle') vehicleName?: string // Support for vehicle name from HomeView.vue
   ) { 
-    this.logger.log(`Request to find all maintenance components. Query: vehicleId=${vehicleId}, vehicleName=${vehicleName}`);
+    const userId = req.user.id;
+    this.logger.log(`Request to find all maintenance components for user ${userId}. Query: vehicleId=${vehicleId}`);
     let vehicleIdNum: number | undefined = undefined;
     if (vehicleId) {
       vehicleIdNum = parseInt(vehicleId, 10);
       if (isNaN(vehicleIdNum)) {
-        this.logger.warn('Invalid vehicleId query parameter, it was NaN. Ignoring vehicleId filter.');
+        this.logger.warn('Invalid vehicleId query parameter for user ${userId}, it was NaN. Ignoring vehicleId filter.');
         vehicleIdNum = undefined; // Reset to undefined if parsing failed
       }
     }
-    return this.componentsService.findAll(vehicleIdNum, vehicleName);
+    return this.componentsService.findAll(userId, vehicleIdNum);
   }
 
   @Get(':id')
-  findOne(@Param('id', ParseIntPipe) id: number) {
-    this.logger.log(`Request to find maintenance component with ID: ${id}`);
-    return this.componentsService.findOne(id);
+  findOne(@Param('id', ParseIntPipe) id: number, @Request() req) {
+    const userId = req.user.id;
+    this.logger.log(`Request to find maintenance component with ID: ${id} for user ${userId}`);
+    return this.componentsService.findOne(id, userId);
   }
 
   @Put(':id')
