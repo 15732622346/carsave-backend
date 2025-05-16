@@ -19,7 +19,7 @@ export class MaintenanceRecord {
   vehicle_id: number;
 
   @Column({ type: 'int', nullable: true }) // Corresponds to component_id INT, NOW NULLABLE
-  component_id: number;
+  component_id: number | null;
 
   @Column({ type: 'date', nullable: false }) // Maps to maintenance_date DATE NOT NULL
   maintenance_date: Date;
@@ -53,5 +53,5 @@ export class MaintenanceRecord {
     },
   )
   @JoinColumn({ name: 'component_id' })
-  maintenanceComponent: MaintenanceComponent; // Changed name to avoid conflict with import
+  maintenanceComponent: MaintenanceComponent | null; // Changed name to avoid conflict with import
 } 

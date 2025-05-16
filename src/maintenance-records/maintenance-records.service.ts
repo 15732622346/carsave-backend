@@ -1,5 +1,5 @@
 // src/maintenance-records/maintenance-records.service.ts
-import { Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException, InternalServerErrorException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { MaintenanceRecord } from '../database/entities/maintenance-record.entity';
@@ -14,133 +14,164 @@ export class MaintenanceRecordsService {
 
   constructor(
     @InjectRepository(MaintenanceRecord)
-    private recordsRepository: Repository<MaintenanceRecord>,
-    // @InjectRepository(Vehicle) // If needed for validation
-    // private vehicleRepository: Repository<Vehicle>,
-    // @InjectRepository(MaintenanceComponent) // If needed for validation
-    // private componentRepository: Repository<MaintenanceComponent>,
+    private maintenanceRecordRepository: Repository<MaintenanceRecord>,
+    @InjectRepository(Vehicle)
+    private vehicleRepository: Repository<Vehicle>,
+    @InjectRepository(MaintenanceComponent)
+    private maintenanceComponentRepository: Repository<MaintenanceComponent>,
   ) {}
 
-  async create(dto: CreateMaintenanceRecordDto): Promise<MaintenanceRecord> {
-    this.logger.log(`[Service Create] Attempting to create maintenance record with DTO: ${JSON.stringify(dto)}`);
-    // Add validation here: e.g., check if vehicle_id and component_id exist
+  async create(createRecordDto: CreateMaintenanceRecordDto, userId: number): Promise<MaintenanceRecord> {
+    // this.logger.log(`[CREATE START] UserID: ${userId}, DTO: ${JSON.stringify(createRecordDto)}`);
+    const { vehicle_id, component_id, maintenance_date, ...restOfDto } = createRecordDto;
+
+    const vehicle = await this.vehicleRepository.findOne({ where: { id: vehicle_id, user: { id: userId } } });
+    if (!vehicle) {
+      this.logger.warn(`[CREATE] Vehicle not found or not authorized. Vehicle ID: ${vehicle_id}, UserID: ${userId}`);
+      throw new NotFoundException(`Vehicle with ID ${vehicle_id} not found or not authorized for this user.`);
+    }
+
+    let componentToAssign: MaintenanceComponent | null = null;
+    if (component_id) {
+      const component = await this.maintenanceComponentRepository.findOne({
+        where: { id: component_id, vehicle: { id: vehicle_id } } 
+      });
+      if (!component) {
+        this.logger.warn(`[CREATE] Component not found for this vehicle. Component ID: ${component_id}, Vehicle ID: ${vehicle_id}`);
+        throw new NotFoundException(`Maintenance component with ID ${component_id} not found for vehicle ${vehicle_id}.`);
+      }
+      componentToAssign = component;
+    }
+
+    const newRecord = new MaintenanceRecord();
+    Object.assign(newRecord, restOfDto);
+    newRecord.maintenance_date = new Date(maintenance_date);
+    newRecord.vehicle_id = vehicle.id;
+    newRecord.vehicle = vehicle;
+    if (componentToAssign) {
+      newRecord.component_id = componentToAssign.id;
+      newRecord.maintenanceComponent = componentToAssign;
+    } else {
+      newRecord.component_id = null;
+      newRecord.maintenanceComponent = null;
+    }
     
-    // 确保 vehicle_id 和 component_id 存在于 DTO 中
-    if (!dto.vehicle_id) {
-      this.logger.error('[Service Create] Validation Error: vehicle_id is missing');
-      throw new Error('vehicle_id is required to create a maintenance record.'); // 或者抛出 BadRequestException
-    }
-    if (!dto.component_id) {
-      this.logger.error('[Service Create] Validation Error: component_id is missing');
-      throw new Error('component_id is required to create a maintenance record.'); // 或者抛出 BadRequestException
-    }
-
-    const recordEntity = this.recordsRepository.create({
-      ...dto,
-    });
-    this.logger.log(`[Service Create] Entity created from DTO: ${JSON.stringify(recordEntity)}`);
-
+    // this.logger.log(`[CREATE] Record entity constructed: ${JSON.stringify(newRecord)}`);
     try {
-      this.logger.log('[Service Create] Attempting to save entity to database...');
-      const savedRecord = await this.recordsRepository.save(recordEntity);
-      this.logger.log(`[Service Create] Entity saved successfully: ${JSON.stringify(savedRecord)}`);
+      // Explicitly type the savedRecord if TS struggles with inference from save
+      const savedRecord: MaintenanceRecord = await this.maintenanceRecordRepository.save(newRecord);
+      // this.logger.log(`[CREATE SUCCESS] Record saved, ID: ${savedRecord.id}`);
       return savedRecord;
     } catch (error) {
-      this.logger.error(`[Service Create] Error saving maintenance record: ${error.message}`, error.stack);
-      throw error; // Re-throw the error to be caught by NestJS error handling
+      this.logger.error(`[CREATE DB EXCEPTION] Error saving record: ${error.message}`, error.stack);
+      throw new InternalServerErrorException('Could not create maintenance record.');
     }
   }
 
   async findAll(userId: number, vehicleId?: number, componentId?: number): Promise<MaintenanceRecord[]> {
-    this.logger.log(`[Service findAll] Finding records for userId: ${userId}. Query Params: vehicleId=${vehicleId}, componentId=${componentId}`);
-    
-    const queryBuilder = this.recordsRepository.createQueryBuilder('record')
-      .innerJoinAndSelect('record.vehicle', 'vehicle')
-      .leftJoinAndSelect('record.maintenanceComponent', 'component')
-      .where('vehicle.user_id = :userId', { userId })
-      .orderBy('record.maintenance_date', 'DESC')
-      .addOrderBy('record.id', 'DESC');
+    // this.logger.log(`[FIND_ALL START] UserID: ${userId}, VehicleID: ${vehicleId}, ComponentID: ${componentId}`);
+    const queryBuilder = this.maintenanceRecordRepository.createQueryBuilder('record')
+      .leftJoinAndSelect('record.vehicle', 'vehicle')
+      .leftJoinAndSelect('record.maintenanceComponent', 'component') // Also select component details if needed
+      .leftJoin('vehicle.user', 'user')
+      .where('user.id = :userId', { userId });
 
-    if (vehicleId !== undefined && vehicleId !== null) {
-      this.logger.log(`[Service findAll] Adding filter for vehicleId: ${vehicleId}`);
-      queryBuilder.andWhere('record.vehicle_id = :vehicleId', { vehicleId });
+    if (vehicleId) {
+      queryBuilder.andWhere('vehicle.id = :vehicleId', { vehicleId });
     }
 
-    if (componentId !== undefined && componentId !== null) {
-      this.logger.log(`[Service findAll] Adding filter for componentId: ${componentId}`);
+    if (componentId) {
       queryBuilder.andWhere('record.component_id = :componentId', { componentId });
     }
 
+    queryBuilder.orderBy('record.maintenance_date', 'DESC')
+      .addOrderBy('record.created_at', 'DESC');
+
     try {
-      this.logger.log(`[Service findAll] Executing query for userId: ${userId}`);
       const records = await queryBuilder.getMany();
-      this.logger.log(`[Service findAll] Found ${records.length} records for userId: ${userId}.`);
+      // this.logger.log(`[FIND_ALL SUCCESS] Found ${records.length} records.`);
       return records;
     } catch (error) {
-      this.logger.error(`[Service findAll] Error finding maintenance records for userId: ${userId} - ${error.message}`, error.stack);
-      throw error;
+      this.logger.error(`[FIND_ALL DB EXCEPTION] Error finding records: ${error.message}`, error.stack);
+      throw new InternalServerErrorException('Could not retrieve maintenance records.');
     }
   }
 
   async findOne(id: number, userId: number): Promise<MaintenanceRecord> {
-    this.logger.log(`[Service findOne] Finding maintenance record with id: ${id} for userId: ${userId}`);
-    try {
-      const record = await this.recordsRepository.createQueryBuilder('record')
-        .innerJoinAndSelect('record.vehicle', 'vehicle')
-        .leftJoinAndSelect('record.maintenanceComponent', 'component')
-        .where('record.id = :id', { id })
-        .andWhere('vehicle.user_id = :userId', { userId })
-        .getOne();
-      
-      if (!record) {
-        this.logger.warn(`[Service findOne] MaintenanceRecord with ID "${id}" not found or not accessible for userId: ${userId}.`);
-        throw new NotFoundException(`MaintenanceRecord with ID "${id}" not found or not accessible by this user.`);
-      }
-      this.logger.log(`[Service findOne] Found record for userId ${userId}: ${JSON.stringify(record)}`);
-      return record;
-    } catch (error) {
-      this.logger.error(`[Service findOne] Error finding record ${id} for userId ${userId}: ${error.message}`, error.stack);
-      throw error;
+    // this.logger.log(`[FIND_ONE START] ID: ${id}, UserID: ${userId}`);
+    const record = await this.maintenanceRecordRepository.createQueryBuilder('record')
+      .leftJoinAndSelect('record.vehicle', 'vehicle')
+      .leftJoinAndSelect('record.maintenanceComponent', 'component') // Also select component details
+      .leftJoin('vehicle.user', 'user')
+      .where('record.id = :id', { id })
+      .andWhere('user.id = :userId', { userId })
+      .getOne();
+
+    if (!record) {
+      this.logger.warn(`[FIND_ONE] Record not found or not authorized. ID: ${id}, UserID: ${userId}`);
+      throw new NotFoundException(`Maintenance record with ID ${id} not found or not authorized.`);
     }
+    return record;
   }
 
-  async update(id: number, dto: UpdateMaintenanceRecordDto): Promise<MaintenanceRecord> {
-    this.logger.log(`[Service update] Attempting to update maintenance record ${id} with DTO: ${JSON.stringify(dto)}`);
-    
-    // `preload` is a good way to load the entity and apply DTO changes, then save.
-    // It returns undefined if the entity with the given id is not found.
-    const recordToUpdate = await this.recordsRepository.preload({
-      id: id,
-      ...dto,
-      // Ensure date is handled correctly if it's part of DTO and needs conversion
-      ...(dto.maintenance_date && { maintenance_date: new Date(dto.maintenance_date) }),
-    });
+  async update(id: number, updateRecordDto: UpdateMaintenanceRecordDto, userId: number): Promise<MaintenanceRecord> {
+    // this.logger.log(`[UPDATE START] ID: ${id}, UserID: ${userId}, DTO: ${JSON.stringify(updateRecordDto)}`);
+    const record = await this.findOne(id, userId); 
 
-    if (!recordToUpdate) {
-      this.logger.warn(`[Service update] MaintenanceRecord with ID "${id}" not found for update.`);
-      throw new NotFoundException(`MaintenanceRecord with ID "${id}" not found.`);
+    if (updateRecordDto.vehicle_id && updateRecordDto.vehicle_id !== record.vehicle.id) {
+      const newVehicle = await this.vehicleRepository.findOne({ where: { id: updateRecordDto.vehicle_id, user: { id: userId } } });
+      if (!newVehicle) {
+        this.logger.warn(`[UPDATE] New vehicle not found or not authorized. Vehicle ID: ${updateRecordDto.vehicle_id}, UserID: ${userId}`);
+        throw new NotFoundException(`New vehicle with ID ${updateRecordDto.vehicle_id} not found or not authorized.`);
+      }
+      record.vehicle = newVehicle;
     }
 
-    this.logger.log(`[Service update] Record to update (after preload): ${JSON.stringify(recordToUpdate)}`);
+    if (updateRecordDto.hasOwnProperty('component_id')) { // Check if component_id is explicitly in DTO
+      if (updateRecordDto.component_id === null) {
+        record.maintenanceComponent = null;
+        record.component_id = null;
+      } else if (updateRecordDto.component_id !== (record.maintenanceComponent ? record.maintenanceComponent.id : null)) {
+        const newComponent = await this.maintenanceComponentRepository.findOne({ 
+          where: { id: updateRecordDto.component_id, vehicle: { id: record.vehicle.id } } 
+        });
+        if (!newComponent) {
+          this.logger.warn(`[UPDATE] New component not found for this vehicle. Component ID: ${updateRecordDto.component_id}, Vehicle ID: ${record.vehicle.id}`);
+          throw new NotFoundException(`New component with ID ${updateRecordDto.component_id} not found for vehicle ${record.vehicle.id}.`);
+        }
+        record.maintenanceComponent = newComponent; // This should be correct based on entity
+        record.component_id = newComponent.id; // Also update the FK
+      }
+    }
+    
+    // Update other properties from DTO, excluding vehicle_id and component_id as they are handled above
+    const { vehicle_id, component_id, ...restOfUpdateDto } = updateRecordDto;
+    Object.assign(record, restOfUpdateDto);
+    
+    if (updateRecordDto.maintenance_date && typeof updateRecordDto.maintenance_date === 'string') {
+      record.maintenance_date = new Date(updateRecordDto.maintenance_date);
+    }
 
+    // this.logger.log(`[UPDATE] Record properties updated before save: ${JSON.stringify(record)}`);
     try {
-      const updatedRecord = await this.recordsRepository.save(recordToUpdate);
-      this.logger.log(`[Service update] Record ${id} updated successfully: ${JSON.stringify(updatedRecord)}`);
+      const updatedRecord = await this.maintenanceRecordRepository.save(record);
+      // this.logger.log(`[UPDATE SUCCESS] Record updated, ID: ${id}`);
       return updatedRecord;
     } catch (error) {
-      this.logger.error(`[Service update] Error updating record ${id}: ${error.message}`, error.stack);
-      throw error;
+      this.logger.error(`[UPDATE DB EXCEPTION] Error updating record: ${error.message}`, error.stack);
+      throw new InternalServerErrorException('Could not update maintenance record.');
     }
   }
 
-  async remove(id: number): Promise<{ deleted: boolean; message?: string }> {
-    this.logger.log(`[Service remove] Attempting to remove maintenance record with id: ${id}`);
-    const result = await this.recordsRepository.delete(id);
+  async remove(id: number, userId: number): Promise<void> {
+    // this.logger.log(`[REMOVE START] ID: ${id}, UserID: ${userId}`);
+    await this.findOne(id, userId); 
+
+    const result = await this.maintenanceRecordRepository.delete(id);
     if (result.affected === 0) {
-      this.logger.warn(`[Service remove] MaintenanceRecord with ID "${id}" not found for deletion.`);
-      throw new NotFoundException(`MaintenanceRecord with ID "${id}" not found.`);
+      this.logger.warn(`[REMOVE] Record with ID \"${id}\" not found for deletion, though it should have been verified.`);
+      throw new NotFoundException(`Maintenance record with ID ${id} not found during deletion.`);
     }
-    this.logger.log(`[Service remove] Record ${id} deleted successfully. Result: ${JSON.stringify(result)}`);
-    return { deleted: true };
+    // this.logger.log(`[REMOVE SUCCESS] Record deleted, ID: ${id}, Affected rows: ${result.affected}`);
   }
 } 

@@ -16,7 +16,11 @@ export class VehiclesService {
   ) {}
 
   async create(createVehicleDto: CreateVehicleDto, userId: number): Promise<Vehicle> {
-    this.logger.log(`Attempting to create vehicle for user ${userId} with DTO: ${JSON.stringify(createVehicleDto)}`);
+    this.logger.log(
+      `Attempting to create vehicle for user ${userId} with DTO: ${JSON.stringify(
+        createVehicleDto,
+      )}`,
+    );
     
     // ADD DUPLICATE CHECK LOGIC START
     // Check for duplicate name for the same user
@@ -46,18 +50,13 @@ export class VehiclesService {
     }
     // ADD DUPLICATE CHECK LOGIC END
     
-    const newVehicle = this.vehiclesRepository.create(createVehicleDto);
+    const newVehicle = this.vehiclesRepository.create({
+      ...createVehicleDto,
+      user: { id: userId } as User,
+    });
     
-    // Associate the vehicle with the user
-    // We create a partial User object with just the id to establish the relationship.
-    // TypeORM will correctly link this to the User with the given id.
-    newVehicle.user = { id: userId } as User;
-
-    this.logger.log(`Entity created from DTO (before save, with user association): ${JSON.stringify(newVehicle)}`);
-
     try {
       const savedVehicle = await this.vehiclesRepository.save(newVehicle);
-      this.logger.log(`Vehicle saved successfully: ${JSON.stringify(savedVehicle)}`);
       return savedVehicle;
     } catch (error) {
       this.logger.error(`Error saving vehicle to database: ${error.message}`, error.stack);
@@ -86,19 +85,31 @@ export class VehiclesService {
     }
   }
 
-  async findOne(id: number): Promise<Vehicle> {
-    this.logger.log(`Finding vehicle with id: ${id}`);
-    const vehicle = await this.vehiclesRepository.findOne({ where: { id } });
+  async findOne(id: number, userId: number): Promise<Vehicle> {
+    this.logger.log(`Finding vehicle with id: ${id} for user: ${userId}`);
+    const vehicle = await this.vehiclesRepository.findOne({
+      where: { id, user: { id: userId } },
+    });
+
     if (!vehicle) {
-      this.logger.warn(`Vehicle with ID "${id}" not found`);
+      this.logger.warn(`Vehicle with ID "${id}" not found or not owned by user ${userId}`);
       throw new NotFoundException(`Vehicle with ID "${id}" not found`);
     }
-    this.logger.log(`Found vehicle: ${JSON.stringify(vehicle)}`);
     return vehicle;
   }
 
-  async update(id: number, updateVehicleDto: UpdateVehicleDto): Promise<Vehicle> {
-    this.logger.log(`Attempting to update vehicle with ID "${id}". Data: ${JSON.stringify(updateVehicleDto)}`);
+  async update(
+    id: number,
+    updateVehicleDto: UpdateVehicleDto,
+    userId: number,
+  ): Promise<Vehicle> {
+    this.logger.log(
+      `Attempting to update vehicle with ID "${id}" for user ${userId}. Data: ${JSON.stringify(
+        updateVehicleDto,
+      )}`,
+    );
+
+    // Preload to ensure the vehicle exists and belongs to the user
     const vehicleToUpdate = await this.vehiclesRepository.preload({
       id: id,
       ...updateVehicleDto,
@@ -126,14 +137,22 @@ export class VehiclesService {
     }
   }
 
-  async remove(id: number): Promise<void> {
-    this.logger.log(`Attempting to remove vehicle with ID "${id}"`);
-    const result = await this.vehiclesRepository.delete(id);
+  async remove(id: number, userId: number): Promise<void> {
+    this.logger.log(`Attempting to remove vehicle with ID "${id}" for user ${userId}`);
+    // First, check if the vehicle exists and belongs to the user
+    const vehicle = await this.vehiclesRepository.findOne({
+      where: { id, user: { id: userId } },
+    });
 
-    if (result.affected === 0) {
-      this.logger.warn(`Vehicle with ID "${id}" not found for deletion, no records affected.`);
-      throw new NotFoundException(`Vehicle with ID "${id}" not found`);
+    if (vehicle) {
+      const result = await this.vehiclesRepository.delete(id);
+
+      if (result.affected === 0) {
+        this.logger.warn(`Vehicle with ID "${id}" not found for deletion by user ${userId}, no records affected.`);
+        // No need to throw NotFoundException if we consider it idempotent
+      }
+    } else {
+      this.logger.warn(`Vehicle with ID "${id}" not found for deletion by user ${userId}, no records affected.`);
     }
-    this.logger.log(`Vehicle with ID "${id}" removed successfully. Records affected: ${result.affected}`);
   }
 } 
