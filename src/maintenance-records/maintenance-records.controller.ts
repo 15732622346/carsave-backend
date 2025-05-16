@@ -25,9 +25,10 @@ export class MaintenanceRecordsController {
   constructor(private readonly recordsService: MaintenanceRecordsService) {}
 
   @Post()
-  create(@Body() createDto: CreateMaintenanceRecordDto) {
-    this.logger.log(`Request to create maintenance record: ${JSON.stringify(createDto)}`);
-    return this.recordsService.create(createDto);
+  create(@Body() createDto: CreateMaintenanceRecordDto, @Request() req) {
+    const userId = req.user.id;
+    this.logger.log(`Request to create maintenance record for user ${userId}: ${JSON.stringify(createDto)}`);
+    return this.recordsService.create(createDto, userId);
   }
 
   @Get()
@@ -70,14 +71,17 @@ export class MaintenanceRecordsController {
   update(
     @Param('id', ParseIntPipe) id: number,
     @Body() updateDto: UpdateMaintenanceRecordDto,
+    @Request() req,
   ) {
-    this.logger.log(`Request to update maintenance record ${id} with: ${JSON.stringify(updateDto)}`);
-    return this.recordsService.update(id, updateDto);
+    const userId = req.user.id;
+    this.logger.log(`Request to update maintenance record ${id} for user ${userId} with: ${JSON.stringify(updateDto)}`);
+    return this.recordsService.update(id, updateDto, userId);
   }
 
   @Delete(':id')
-  remove(@Param('id', ParseIntPipe) id: number) {
-    this.logger.log(`Request to delete maintenance record ${id}`);
-    return this.recordsService.remove(id);
+  remove(@Param('id', ParseIntPipe) id: number, @Request() req) {
+    const userId = req.user.id;
+    this.logger.log(`Request to delete maintenance record ${id} for user ${userId}`);
+    return this.recordsService.remove(id, userId);
   }
 } 

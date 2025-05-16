@@ -11,8 +11,8 @@ import { MaintenanceComponent } from '../database/entities/maintenance-component
   imports: [
     TypeOrmModule.forFeature([
       MaintenanceRecord, 
-      // Vehicle, // Uncomment if VehicleRepository is injected in MaintenanceRecordsService
-      // MaintenanceComponent, // Uncomment if MaintenanceComponentRepository is injected
+      Vehicle, // Uncomment if VehicleRepository is injected in MaintenanceRecordsService
+      MaintenanceComponent, // Uncomment if MaintenanceComponentRepository is injected
     ]),
   ],
   controllers: [MaintenanceRecordsController],

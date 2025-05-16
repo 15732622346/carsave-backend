@@ -66,14 +66,17 @@ export class MaintenanceComponentsController {
   update(
     @Param('id', ParseIntPipe) id: number,
     @Body() updateDto: UpdateMaintenanceComponentDto,
+    @Request() req,
   ) {
-    this.logger.log(`Request to update maintenance component ${id} with: ${JSON.stringify(updateDto)}`);
-    return this.componentsService.update(id, updateDto);
+    const userId = req.user.id;
+    this.logger.log(`Request to update maintenance component ${id} for user ${userId} with: ${JSON.stringify(updateDto)}`);
+    return this.componentsService.update(id, updateDto, userId);
   }
 
   @Delete(':id')
-  remove(@Param('id', ParseIntPipe) id: number) {
-    this.logger.log(`Request to delete maintenance component ${id}`);
-    return this.componentsService.remove(id);
+  remove(@Param('id', ParseIntPipe) id: number, @Request() req) {
+    const userId = req.user.id;
+    this.logger.log(`Request to delete maintenance component ${id} for user ${userId}`);
+    return this.componentsService.remove(id, userId);
   }
 } 
