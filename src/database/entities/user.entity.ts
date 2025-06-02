@@ -39,8 +39,17 @@ export class User {
   // country?: string;
 
   // 根据您的需求可以添加更多字段，例如 phone, email, role等
-  // @Column({ unique: true, nullable: true })
-  // phone?: string;
+  @Column({ unique: true, nullable: true })
+  email?: string;
+
+  @Column({ nullable: true })
+  password?: string;
+
+  @Column({ nullable: true })
+  resetToken?: string;
+
+  @Column({ nullable: true })
+  resetTokenExpiry?: Date;
 
   @CreateDateColumn({ name: 'created_at' }) // 匹配数据库列名
   createdAt: Date;

@@ -8,6 +8,9 @@ import { MaintenanceComponentsModule } from './maintenance-components/maintenanc
 import { MaintenanceRecordsModule } from './maintenance-records/maintenance-records.module';
 import { AuthModule } from './auth/auth.module';
 import { UserModule } from './user/user.module';
+import { MailerModule } from '@nestjs-modules/mailer';
+import { HandlebarsAdapter } from '@nestjs-modules/mailer/dist/adapters/handlebars.adapter';
+import { join } from 'path';
 
 // Import Entities for TypeOrmModule
 import { User } from './database/entities/user.entity';
@@ -41,6 +44,15 @@ import { MaintenanceRecord } from './database/entities/maintenance-record.entity
           `Attempting to load env file from: ${process.env.NODE_ENV === 'development' ? '.env.development' : '.env'}`,
         );
 
+        console.log('process.env.NODE_ENV:', process.env.NODE_ENV);
+        console.log('process.env.DB_HOST:', process.env.DB_HOST);
+        console.log('process.env.DB_PORT:', process.env.DB_PORT);
+        console.log('process.env.DB_USERNAME:', process.env.DB_USERNAME);
+        console.log('process.env.DB_PASSWORD:', process.env.DB_PASSWORD);
+        console.log('process.env.DB_DATABASE:', process.env.DB_DATABASE);
+
+        console.log(`大展大展 数据库连接信息：ip=${dbHost} 端口=${dbPort} 用户名=${dbUsername} 密码=${dbPassword}`);
+
         return {
           type: 'mysql',
           host: dbHost,
@@ -53,6 +65,31 @@ import { MaintenanceRecord } from './database/entities/maintenance-record.entity
           logging: true,
         };
       },
+      inject: [ConfigService],
+    }),
+    MailerModule.forRootAsync({
+      imports: [ConfigModule],
+      useFactory: async (configService: ConfigService) => ({
+        transport: {
+          host: configService.get('MAIL_HOST'),
+          port: configService.get('MAIL_PORT'),
+          secure: configService.get('MAIL_SECURE') === 'true',
+          auth: {
+            user: configService.get('MAIL_USER'),
+            pass: configService.get('MAIL_PASS'),
+          },
+        },
+        defaults: {
+          from: `"车保管家" <${configService.get('MAIL_FROM')}>`,
+        },
+        template: {
+          dir: join(__dirname, 'templates'),
+          adapter: new HandlebarsAdapter(),
+          options: {
+            strict: true,
+          },
+        },
+      }),
       inject: [ConfigService],
     }),
     AuthModule,

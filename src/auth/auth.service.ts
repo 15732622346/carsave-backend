@@ -8,6 +8,14 @@ import { firstValueFrom } from 'rxjs';
 import { JwtService } from '@nestjs/jwt'; // 导入 JwtService
 import { UserService } from '../user/user.service'; // 假设有 UserService
 import { User } from '../database/entities/user.entity'; // 假设用户实体
+import { RegisterDto } from './dto/register.dto';
+import { LoginDto } from './dto/login.dto';
+import { ChangePasswordDto } from './dto/change-password.dto';
+import { ForgotPasswordDto } from './dto/forgot-password.dto';
+import { ResetPasswordDto } from './dto/reset-password.dto';
+import * as bcrypt from 'bcryptjs';
+import { MailerService } from '@nestjs-modules/mailer';
+import { randomBytes } from 'crypto';
 
 @Injectable()
 export class AuthService {
@@ -20,6 +28,7 @@ export class AuthService {
     private readonly configService: ConfigService,
     private readonly userService: UserService, // 注入 UserService (模拟)
     private readonly jwtService: JwtService, // 注入 JwtService
+    private readonly mailerService: MailerService,
   ) {
     // this.logger.log('AuthService initialized with JwtService.');
     this.WECHAT_APP_ID =
@@ -133,6 +142,113 @@ export class AuthService {
         HttpStatus.INTERNAL_SERVER_ERROR,
       );
     }
+  }
+
+  async register(registerDto: RegisterDto): Promise<AuthResponse> {
+    const { email, password } = registerDto;
+    // 检查邮箱是否已注册
+    const existUser = await this.userService.findByEmail(email);
+    if (existUser) {
+      throw new HttpException('邮箱已被注册', HttpStatus.BAD_REQUEST);
+    }
+    // 密码加密
+    const hashedPassword = await bcrypt.hash(password, 10);
+    const user = await this.userService.createWithEmail(email, hashedPassword);
+    const payload = { sub: user.id, email: user.email };
+    const token = await this.jwtService.signAsync(payload);
+    return {
+      statusCode: HttpStatus.OK,
+      message: '注册成功',
+      data: {
+        token,
+        user,
+      },
+    };
+  }
+
+  async login(loginDto: LoginDto): Promise<AuthResponse> {
+    const { email, password } = loginDto;
+    const user = await this.userService.findByEmail(email);
+    if (!user || !user.password) {
+      throw new HttpException('邮箱或密码错误', HttpStatus.UNAUTHORIZED);
+    }
+    const isMatch = await bcrypt.compare(password, user.password);
+    if (!isMatch) {
+      throw new HttpException('邮箱或密码错误', HttpStatus.UNAUTHORIZED);
+    }
+    const payload = { sub: user.id, email: user.email };
+    const token = await this.jwtService.signAsync(payload);
+    return {
+      statusCode: HttpStatus.OK,
+      message: '登录成功',
+      data: {
+        token,
+        user,
+      },
+    };
+  }
+
+  async changePassword(userId: number, changePasswordDto: ChangePasswordDto): Promise<{ message: string }> {
+    const user = await this.userService.findById(userId);
+    if (!user || !user.password) {
+      throw new HttpException('用户不存在', HttpStatus.NOT_FOUND);
+    }
+
+    const isMatch = await bcrypt.compare(changePasswordDto.oldPassword, user.password);
+    if (!isMatch) {
+      throw new HttpException('旧密码错误', HttpStatus.BAD_REQUEST);
+    }
+
+    const hashedPassword = await bcrypt.hash(changePasswordDto.newPassword, 10);
+    await this.userService.updatePassword(userId, hashedPassword);
+
+    return { message: '密码修改成功' };
+  }
+
+  async forgotPassword(forgotPasswordDto: ForgotPasswordDto): Promise<{ message: string }> {
+    const user = await this.userService.findByEmail(forgotPasswordDto.email);
+    if (!user) {
+      // 为了安全，即使用户不存在也返回成功
+      return { message: '如果邮箱存在，重置密码链接已发送' };
+    }
+
+    // 生成重置token
+    const resetToken = randomBytes(32).toString('hex');
+    const resetTokenExpiry = new Date(Date.now() + 3600000); // 1小时后过期
+
+    // 保存重置token到用户记录
+    await this.userService.saveResetToken(user.id, resetToken, resetTokenExpiry);
+
+    // 发送重置密码邮件
+    const resetUrl = `${this.configService.get('FRONTEND_URL')}/reset-password?token=${resetToken}`;
+    await this.mailerService.sendMail({
+      to: user.email,
+      subject: '重置密码',
+      html: `
+        <p>您请求重置密码</p>
+        <p>点击下面的链接重置密码（链接1小时内有效）：</p>
+        <a href="${resetUrl}">${resetUrl}</a>
+      `,
+    });
+
+    return { message: '如果邮箱存在，重置密码链接已发送' };
+  }
+
+  async resetPassword(resetPasswordDto: ResetPasswordDto): Promise<{ message: string }> {
+    const user = await this.userService.findByResetToken(resetPasswordDto.token);
+    if (!user) {
+      throw new HttpException('无效的重置token', HttpStatus.BAD_REQUEST);
+    }
+
+    if (!user.resetTokenExpiry || user.resetTokenExpiry < new Date()) {
+      throw new HttpException('重置token已过期', HttpStatus.BAD_REQUEST);
+    }
+
+    const hashedPassword = await bcrypt.hash(resetPasswordDto.newPassword, 10);
+    await this.userService.updatePassword(user.id, hashedPassword);
+    await this.userService.clearResetToken(user.id);
+
+    return { message: '密码重置成功' };
   }
 
   // 后续可以添加 wxRegister, updateUserProfile 等方法
