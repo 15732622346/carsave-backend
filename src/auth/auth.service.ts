@@ -208,47 +208,34 @@ export class AuthService {
   async forgotPassword(forgotPasswordDto: ForgotPasswordDto): Promise<{ message: string }> {
     const user = await this.userService.findByEmail(forgotPasswordDto.email);
     if (!user) {
-      // 为了安全，即使用户不存在也返回成功
-      return { message: '如果邮箱存在，重置密码链接已发送' };
+      return { message: '如果邮箱存在，验证码已发送' };
     }
-
-    // 生成重置token
-    const resetToken = randomBytes(32).toString('hex');
-    const resetTokenExpiry = new Date(Date.now() + 3600000); // 1小时后过期
-
-    // 保存重置token到用户记录
-    await this.userService.saveResetToken(user.id, resetToken, resetTokenExpiry);
-
-    // 发送重置密码邮件
-    const resetUrl = `${this.configService.get('FRONTEND_URL')}/reset-password?token=${resetToken}`;
+    // 生成6位数字验证码
+    const code = Math.floor(100000 + Math.random() * 900000).toString();
+    const codeExpiry = new Date(Date.now() + 10 * 60 * 1000); // 10分钟有效
+    await this.userService.saveResetCode(user.id, code, codeExpiry);
+    // 发送验证码邮件
     await this.mailerService.sendMail({
       to: user.email,
-      subject: '重置密码',
-      html: `
-        <p>您请求重置密码</p>
-        <p>点击下面的链接重置密码（链接1小时内有效）：</p>
-        <a href="${resetUrl}">${resetUrl}</a>
-      `,
+      subject: '重置密码验证码',
+      html: `<p>您的验证码是：<b>${code}</b>，10分钟内有效。如非本人操作请忽略。</p>`,
     });
-
-    return { message: '如果邮箱存在，重置密码链接已发送' };
+    return { message: '如果邮箱存在，验证码已发送' };
   }
 
-  async resetPassword(resetPasswordDto: ResetPasswordDto): Promise<{ message: string }> {
-    const user = await this.userService.findByResetToken(resetPasswordDto.token);
+  async resetPassword(resetPasswordDto: ResetPasswordDto): Promise<{ success: boolean; message: string }> {
+    const { email, code, newPassword } = resetPasswordDto as any;
+    const user = await this.userService.findByEmailAndResetCode(email, code);
     if (!user) {
-      throw new HttpException('无效的重置token', HttpStatus.BAD_REQUEST);
+      return { success: false, message: '验证码错误' };
     }
-
-    if (!user.resetTokenExpiry || user.resetTokenExpiry < new Date()) {
-      throw new HttpException('重置token已过期', HttpStatus.BAD_REQUEST);
+    if (!user.resetCodeExpiry || user.resetCodeExpiry < new Date()) {
+      return { success: false, message: '验证码已过期' };
     }
-
-    const hashedPassword = await bcrypt.hash(resetPasswordDto.newPassword, 10);
+    const hashedPassword = await bcrypt.hash(newPassword, 10);
     await this.userService.updatePassword(user.id, hashedPassword);
-    await this.userService.clearResetToken(user.id);
-
-    return { message: '密码重置成功' };
+    await this.userService.clearResetCode(user.id);
+    return { success: true, message: '密码重置成功' };
   }
 
   // 后续可以添加 wxRegister, updateUserProfile 等方法

@@ -112,5 +112,23 @@ export class UserService {
     });
   }
 
+  async saveResetCode(userId: number, code: string, expiry: Date): Promise<void> {
+    await this.userRepository.update(userId, {
+      resetCode: code,
+      resetCodeExpiry: expiry,
+    });
+  }
+
+  async findByEmailAndResetCode(email: string, code: string): Promise<User | null> {
+    return this.userRepository.findOne({ where: { email, resetCode: code } });
+  }
+
+  async clearResetCode(userId: number): Promise<void> {
+    await this.userRepository.update(userId, {
+      resetCode: undefined,
+      resetCodeExpiry: undefined,
+    });
+  }
+
   // 其他用户相关方法可以加在这里...
 }

@@ -77,6 +77,7 @@ export class AuthController {
   async resetPassword(
     @Body(new ValidationPipe()) resetPasswordDto: ResetPasswordDto,
   ) {
+    console.log('追龙追龙 reset-password 接口收到请求:', JSON.stringify(resetPasswordDto));
     return this.authService.resetPassword(resetPasswordDto);
   }
 

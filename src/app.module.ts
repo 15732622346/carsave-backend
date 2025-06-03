@@ -11,12 +11,16 @@ import { UserModule } from './user/user.module';
 import { MailerModule } from '@nestjs-modules/mailer';
 import { HandlebarsAdapter } from '@nestjs-modules/mailer/dist/adapters/handlebars.adapter';
 import { join } from 'path';
+import { FeedbackModule } from './feedback/feedback.module';
+import { DataBackupModule } from './data-backup/data-backup.module';
 
 // Import Entities for TypeOrmModule
 import { User } from './database/entities/user.entity';
 import { Vehicle } from './database/entities/vehicle.entity';
 import { MaintenanceComponent } from './database/entities/maintenance-component.entity';
 import { MaintenanceRecord } from './database/entities/maintenance-record.entity';
+import { Feedback } from './database/entities/feedback.entity';
+import { UserDataBackup } from './database/entities/user-data-backup.entity';
 
 @Module({
   imports: [
@@ -60,7 +64,7 @@ import { MaintenanceRecord } from './database/entities/maintenance-record.entity
           username: dbUsername,
           password: dbPassword,
           database: dbDatabase,
-          entities: [User, Vehicle, MaintenanceComponent, MaintenanceRecord],
+          entities: [User, Vehicle, MaintenanceComponent, MaintenanceRecord, Feedback, UserDataBackup],
           synchronize: configService.get<boolean>('DB_SYNCHRONIZE', true),
           logging: true,
         };
@@ -97,6 +101,8 @@ import { MaintenanceRecord } from './database/entities/maintenance-record.entity
     VehiclesModule,
     MaintenanceComponentsModule,
     MaintenanceRecordsModule,
+    FeedbackModule,
+    DataBackupModule,
   ],
   controllers: [AppController],
   providers: [AppService],

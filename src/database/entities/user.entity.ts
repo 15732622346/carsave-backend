@@ -51,6 +51,12 @@ export class User {
   @Column({ nullable: true })
   resetTokenExpiry?: Date;
 
+  @Column({ nullable: true })
+  resetCode?: string;
+
+  @Column({ nullable: true, type: 'datetime' })
+  resetCodeExpiry?: Date;
+
   @CreateDateColumn({ name: 'created_at' }) // 匹配数据库列名
   createdAt: Date;
 
