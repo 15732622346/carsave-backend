@@ -48,6 +48,7 @@ export class AuthController {
   async login(
     @Body(new ValidationPipe()) loginDto: LoginDto,
   ): Promise<AuthResponse> {
+    console.log('[Controller] 收到登录请求:', loginDto);
     return this.authService.login(loginDto);
   }
 

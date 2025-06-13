@@ -167,25 +167,44 @@ export class AuthService {
   }
 
   async login(loginDto: LoginDto): Promise<AuthResponse> {
-    const { email, password } = loginDto;
-    const user = await this.userService.findByEmail(email);
-    if (!user || !user.password) {
-      throw new HttpException('邮箱或密码错误', HttpStatus.UNAUTHORIZED);
+    try {
+      const { email, password } = loginDto;
+      const user = await this.userService.findByEmail(email);
+      if (!user || !user.password) {
+        throw new HttpException({
+          statusCode: HttpStatus.UNAUTHORIZED,
+          message: '邮箱或密码错误',
+          error: 'Unauthorized'
+        }, HttpStatus.UNAUTHORIZED);
+      }
+      const isMatch = await bcrypt.compare(password, user.password);
+      if (!isMatch) {
+        throw new HttpException({
+          statusCode: HttpStatus.UNAUTHORIZED,
+          message: '邮箱或密码错误',
+          error: 'Unauthorized'
+        }, HttpStatus.UNAUTHORIZED);
+      }
+      const payload = { sub: user.id, email: user.email };
+      const token = await this.jwtService.signAsync(payload);
+      return {
+        statusCode: HttpStatus.OK,
+        message: '登录成功',
+        data: {
+          token,
+          user,
+        },
+      };
+    } catch (error) {
+      if (error instanceof HttpException) {
+        throw error;
+      }
+      throw new HttpException({
+        statusCode: HttpStatus.INTERNAL_SERVER_ERROR,
+        message: '登录过程中发生错误',
+        error: 'Internal Server Error'
+      }, HttpStatus.INTERNAL_SERVER_ERROR);
     }
-    const isMatch = await bcrypt.compare(password, user.password);
-    if (!isMatch) {
-      throw new HttpException('邮箱或密码错误', HttpStatus.UNAUTHORIZED);
-    }
-    const payload = { sub: user.id, email: user.email };
-    const token = await this.jwtService.signAsync(payload);
-    return {
-      statusCode: HttpStatus.OK,
-      message: '登录成功',
-      data: {
-        token,
-        user,
-      },
-    };
   }
 
   async changePassword(userId: number, changePasswordDto: ChangePasswordDto): Promise<{ message: string }> {
