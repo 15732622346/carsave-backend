@@ -9,6 +9,7 @@ import {
   Query,
   ParseIntPipe,
   Req,
+  Logger,
 } from '@nestjs/common';
 import { MaintenanceRecordsService } from './maintenance-records/maintenance-records.service';
 import { CreateMaintenanceRecordDto } from './maintenance-records/dto/create-maintenance-record.dto';
@@ -16,6 +17,7 @@ import { UpdateMaintenanceRecordDto } from './maintenance-records/dto/update-mai
 
 @Controller('maintenance_records')
 export class MaintenanceRecordsController {
+  private readonly logger = new Logger(MaintenanceRecordsController.name);
   constructor(private readonly recordsService: MaintenanceRecordsService) {}
 
   @Post()
@@ -24,6 +26,13 @@ export class MaintenanceRecordsController {
     @Req() req: { user: { id: number } },
   ) {
     const userId = req.user.id;
+
+    this.logger.log(
+      `多兰多兰---- 创建养护记录, userId: ${userId}, body: ${JSON.stringify(
+        createDto,
+      )}`,
+    );
+
     return this.recordsService.create(createDto, userId);
   }
 

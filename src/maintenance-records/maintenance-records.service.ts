@@ -70,9 +70,11 @@ export class MaintenanceRecordsService {
     if (componentToAssign) {
       newRecord.component_id = componentToAssign.id;
       newRecord.maintenanceComponent = componentToAssign;
+      newRecord.component_name = componentToAssign.name;
     } else {
       newRecord.component_id = null;
       newRecord.maintenanceComponent = null;
+      newRecord.component_name = createRecordDto.component_name || '未知组件';
     }
 
     // this.logger.log(`[CREATE] Record entity constructed: ${JSON.stringify(newRecord)}`);

@@ -21,6 +21,9 @@ export class MaintenanceRecord {
   @Column({ type: 'int', nullable: true }) // Corresponds to component_id INT, NOW NULLABLE
   component_id: number | null;
 
+  @Column({ type: 'varchar', length: 100, nullable: true })
+  component_name: string | null;
+
   @Column({ type: 'date', nullable: false }) // Maps to maintenance_date DATE NOT NULL
   maintenance_date: Date;
 

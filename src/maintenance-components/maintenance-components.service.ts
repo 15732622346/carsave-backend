@@ -321,16 +321,7 @@ export class MaintenanceComponentsService {
       await this.findOne(id, userId); // Keep this call for check within try block
       // this.logger.log(`[REMOVE] Component found, proceeding with deletion. ID: ${id}`);
 
-      // Manually delete related maintenance records first
-      const deleteRecordsResult = await this.maintenanceRecordsRepository
-        .createQueryBuilder()
-        .delete()
-        .from(MaintenanceRecord)
-        .where('component_id = :id', { id })
-        .execute();
-      this.logger.log(
-        `[REMOVE] Deleted ${deleteRecordsResult.affected || 0} related maintenance records for component ID: ${id}`,
-      );
+      // 不再级联删除维护记录，保留历史数据
 
       const result = await this.componentsRepository.delete(id);
 

@@ -31,7 +31,7 @@ export class MaintenanceRecordsController {
   ) {
     const userId = req.user.id;
     this.logger.log(
-      `Request to create maintenance record for user ${userId}: ${JSON.stringify(createDto)}`,
+      `多兰多兰---- 创建养护记录, userId: ${userId}, body: ${JSON.stringify(createDto)}`,
     );
     return this.recordsService.create(createDto, userId);
   }

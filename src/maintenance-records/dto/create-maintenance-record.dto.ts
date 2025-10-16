@@ -27,5 +27,9 @@ export class CreateMaintenanceRecordDto {
   @IsOptional()
   notes?: string;
 
+  @IsString()
+  @IsOptional()
+  component_name?: string;
+
   // Fields like cost, location, etc., can be added as needed
 }
